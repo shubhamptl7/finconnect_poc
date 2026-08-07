@@ -1,0 +1,7 @@
+{
+  "signal": "SIGTERM",
+  "delay": 500,
+  "watch": ["src"],
+  "ext": "js,mjs,cjs,json",
+  "ignore": ["src/**/*.test.js", "node_modules"]
+}
