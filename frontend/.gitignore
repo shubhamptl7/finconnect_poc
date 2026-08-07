@@ -10,6 +10,8 @@ build/
 .env.test.local
 .env.production.local
 .env.*.local
+.agent
+.agents
 
 # Logs
 logs/
