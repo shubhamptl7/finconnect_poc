@@ -1,11 +1,11 @@
 import db from '../models/index.js';
 import AppError from '../utils/appError.js';
 import STATUS_CODES from '../config/constants.js';
-import bankProvider from '../providers/plaidBankProvider.js';
+import bankProvider from '../providers/plaid/plaidBankProvider.js';
 import logger from '../config/logger.js';
 import { generateSearchHash } from '../utils/encryption.js';
 
-class PaymentService {
+const paymentService = {
   /**
    * Initiates an Open Banking Payment via Plaid.
    * This creates a Pending payment record in our DB, and returns a Link Token
@@ -15,9 +15,13 @@ class PaymentService {
     const { amount, iban, bacsAccount, sortCode, recipientName, note, accountId, beneficiaryId } =
       payload;
 
-    if (!amount || !accountId) {
+    if (!accountId) {
+      throw new AppError('Missing required payment fields: accountId', STATUS_CODES.BAD_REQUEST);
+    }
+
+    if (!amount || isNaN(Number(amount)) || !isFinite(Number(amount)) || Number(amount) <= 0) {
       throw new AppError(
-        'Missing required payment fields: amount, accountId',
+        'Invalid amount: must be a positive number',
         STATUS_CODES.BAD_REQUEST
       );
     }
@@ -86,6 +90,11 @@ class PaymentService {
           sort_code_hash: generateSearchHash(normalizedSortCode),
         },
       });
+    }
+
+    // SECURITY FIX: Prevent self-payment — user cannot initiate a payment to their own account
+    if (internalAccount && internalAccount.user_id === userId) {
+      throw new AppError('Cannot initiate a payment to your own account.', STATUS_CODES.BAD_REQUEST);
     }
 
     if (internalAccount) {
@@ -194,9 +203,10 @@ class PaymentService {
     } catch (error) {
       await t.rollback();
       logger.error(`Payment initiation failed: ${error.message}`);
+      if (error instanceof AppError) throw error;
       throw new AppError('Failed to initiate payment', STATUS_CODES.SERVER_ERROR);
     }
-  }
+  },
 
   /**
    * Retrieve payment history for user
@@ -214,7 +224,7 @@ class PaymentService {
       ],
       order: [['created_at', 'DESC']],
     });
-  }
+  },
 
   /**
    * Cancel a pending payment
@@ -224,12 +234,21 @@ class PaymentService {
     if (!payment) throw new AppError('Payment not found', STATUS_CODES.NOT_FOUND);
 
     if (payment.status === 'initiated' || payment.status === 'pending') {
+      // SECURITY FIX: Also cancel the payment on Plaid's end so a future PAYMENT_STATUS_EXECUTED
+      // webhook cannot re-settle a payment the user has cancelled locally.
+      if (payment.provider_reference) {
+        const cancelledOnPlaid = await bankProvider.cancelPayment(payment.provider_reference);
+        if (!cancelledOnPlaid) {
+          logger.warn(`[Payment] Plaid cancellation failed for payment ${payment.id} — marking cancelled in DB only`);
+        }
+      }
+
       payment.status = 'cancelled';
       await payment.save();
       return { cancelled: true };
     }
     throw new AppError('Cannot cancel this payment', STATUS_CODES.BAD_REQUEST);
-  }
-}
+  },
+};
 
-export default new PaymentService();
+export default paymentService;

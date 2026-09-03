@@ -54,6 +54,18 @@ const kycService = {
       },
     });
 
+    // SECURITY FIX: Validate referenceId ownership.
+    // If this inquiry record was already created by a different user, reject the webhook.
+    // This prevents a forged/replayed webhook from activating an arbitrary user by
+    // crafting a payload with a different referenceId than the one originally submitted.
+    if (!created && kycRecord.user_id !== user.id) {
+      logger.error(
+        `[KYC] Webhook referenceId mismatch: inquiry ${providerReferenceId} belongs to user ` +
+        `${kycRecord.user_id} but webhook claims user ${user.id}. Possible replay attack.`
+      );
+      return { success: false, message: 'Inquiry ownership mismatch — rejected' };
+    }
+
     // In Persona sandbox, 'inquiry.completed' is commonly used if auto-approve isn't set up.
     if (eventName === 'inquiry.approved' || eventName === 'inquiry.completed') {
       user.status = 'active';

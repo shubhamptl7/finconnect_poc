@@ -16,7 +16,7 @@ const categoryColors = {
 }
 
 export default function TransactionsPage() {
-  const { transactions, payments, bankAccounts, syncTransactions, addToast } = useApp()
+  const { transactions, payments, bankAccounts, syncTransactions, addToast, isDecryptingTransactions } = useApp()
   const [search, setSearch] = useState('')
   const [accountId, setAccountId] = useState('All')
   const [category, setCategory] = useState('All')
@@ -78,8 +78,8 @@ export default function TransactionsPage() {
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE) || 1
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
-  const totalIn = transactions.filter(t => t.type === 'credit').reduce((s, t) => s + parseFloat(t.amount), 0)
-  const totalOut = transactions.filter(t => t.type === 'debit').reduce((s, t) => s + Math.abs(parseFloat(t.amount)), 0)
+  const totalIn = transactions.filter(t => t.type === 'credit' && t.amount !== null).reduce((s, t) => s + parseFloat(t.amount), 0)
+  const totalOut = transactions.filter(t => t.type === 'debit' && t.amount !== null).reduce((s, t) => s + Math.abs(parseFloat(t.amount)), 0)
 
   return (
     <AppLayout title="Transaction History" subtitle="Full history of your financial activity">
@@ -179,7 +179,7 @@ export default function TransactionsPage() {
                       >
                         <td>
                           <div>
-                            <p className="font-semibold text-slate-900 text-sm">{txn.description}</p>
+                            <p className="font-semibold text-slate-900 text-sm">{txn.description || <span className="text-slate-400 italic">Encrypted</span>}</p>
                             <p className="text-xs text-slate-400 font-mono mt-0.5">{txn.external_transaction_id?.slice(0, 10)}...</p>
                           </div>
                         </td>
@@ -207,9 +207,15 @@ export default function TransactionsPage() {
                           </Badge>
                         </td>
                         <td className="text-right">
-                          <span className={cn('font-bold text-sm tabular-nums', txn.type === 'credit' ? 'text-emerald-600' : 'text-slate-900')}>
-                            {txn.type === 'credit' ? '+' : '-'}{formatCurrency(Math.abs(parseFloat(txn.amount)))}
-                          </span>
+                          {isDecryptingTransactions ? (
+                            <span className="font-bold text-sm tabular-nums text-slate-400 animate-pulse">Decrypting…</span>
+                          ) : txn.amount === null ? (
+                            <span className="font-bold text-sm tabular-nums text-slate-400" title="Encrypted – enter recovery code to decrypt">•••</span>
+                          ) : (
+                            <span className={cn('font-bold text-sm tabular-nums', txn.type === 'credit' ? 'text-emerald-600' : 'text-slate-900')}>
+                              {txn.type === 'credit' ? '+' : '-'}{formatCurrency(Math.abs(parseFloat(txn.amount || 0)))}
+                            </span>
+                          )}
                         </td>
                       </motion.tr>
                     )

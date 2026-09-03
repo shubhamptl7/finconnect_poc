@@ -27,6 +27,14 @@ export const verifyPersonaSignature = (signatureHeader, rawBody) => {
 
     if (!t || !v1) return false;
 
+    // SECURITY FIX: Validate timestamp freshness — reject webhooks older than 5 minutes.
+    // Without this, a captured webhook (e.g. inquiry.approved) could be replayed indefinitely
+    // to reactivate suspended users or bypass KYC checks.
+    const webhookAgeSeconds = Math.abs(Math.floor(Date.now() / 1000) - parseInt(t, 10));
+    if (webhookAgeSeconds > 300) {
+      return false; // Replay attack: webhook is too old
+    }
+
     // The payload to sign is `${t}.${rawBody}`
     const payload = `${t}.${rawBody.toString('utf8')}`;
 

@@ -9,6 +9,8 @@ export const registerSchema = {
         password: { type: 'string', minLength: 8, maxLength: 16 },
         phone: { type: 'string', maxLength: 15, pattern: '^(?:\\+?[0-9\\s()-]{8,15})?$' },
         dateOfBirth: { type: 'string', format: 'date' },
+        e2ee_public_key: { type: ['object', 'string'] },
+        e2ee_key_backup: { type: ['object', 'string'] },
       },
     },
     response: {

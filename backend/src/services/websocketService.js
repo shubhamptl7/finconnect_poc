@@ -2,23 +2,20 @@ import jwt from '@fastify/jwt';
 import logger from '../config/logger.js';
 import pubSub from '../providers/pubsub/InMemoryPubSubProvider.js';
 
-class WebSocketService {
-  constructor() {
-    // Maps userId -> Set of WebSocket connections
-    // A user might be logged in from multiple tabs/devices
-    this.connections = new Map();
-    
-    // Subscribe to our PubSub megaphone
-    // When ANY server broadcasts a message to a user, this server checks if it has that user connected.
-    pubSub.subscribe('USER_NOTIFICATION', (message) => {
-      try {
-        const payload = JSON.parse(message);
-        this._deliverToLocalConnections(payload.userId, payload.data);
-      } catch (err) {
-        logger.error(`Error parsing pubsub message: ${err.message}`);
-      }
-    });
+const connections = new Map();
+
+// Subscribe to PubSub megaphone
+pubSub.subscribe('USER_NOTIFICATION', (message) => {
+  try {
+    const payload = JSON.parse(message);
+    websocketService._deliverToLocalConnections(payload.userId, payload.data);
+  } catch (err) {
+    logger.error(`Error parsing pubsub message: ${err.message}`);
   }
+});
+
+const websocketService = {
+  connections,
 
   /**
    * Called by our fastify websocket plugin when a new raw connection is established
@@ -27,37 +24,44 @@ class WebSocketService {
     const socket = connection;
     let socketUserId = null;
 
-    try {
+    const doAuth = async () => {
       // 1. Authentication via HttpOnly Cookie (Sent automatically on upgrade)
       const token = request.cookies?.token;
       if (!token) throw new Error('No auth cookie');
 
-      // Verify JWT
+      // Verify JWT signature
       const decoded = fastify.jwt.verify(token);
-      socketUserId = decoded.id; 
-      
-      this._addConnection(socketUserId, socket);
-      socket.send(JSON.stringify({ type: 'AUTH_SUCCESS' }));
-    } catch (err) {
-      logger.error(`WebSocket auth error: ${err.message}`);
-      socket.send(JSON.stringify({ type: 'ERROR', message: 'Authentication failed' }));
-      socket.close();
-      return;
-    }
+      const userId = decoded.id;
+
+      // SECURITY FIX: Fetch fresh user from DB to enforce account status checks.
+      const { default: db } = await import('../models/index.js');
+      const user = await db.User.findByPk(userId);
+
+      if (!user) throw new Error('User no longer exists');
+      if (user.status === 'suspended') throw new Error('Account suspended');
+      if (!user.is_email_verified) throw new Error('Email not verified');
+
+      return userId;
+    };
+
+    doAuth()
+      .then((userId) => {
+        socketUserId = userId;
+        this._addConnection(socketUserId, socket);
+        socket.send(JSON.stringify({ type: 'AUTH_SUCCESS' }));
+      })
+      .catch((err) => {
+        logger.error(`WebSocket auth error: ${err.message}`);
+        socket.send(JSON.stringify({ type: 'ERROR', message: 'Authentication failed' }));
+        socket.close();
+      });
 
     socket.on('message', async (message) => {
       try {
-        const parsedMessage = JSON.parse(message);
-
-        // 2. Handle ping (Heartbeat)
-        if (parsedMessage.type === 'PING') {
-          socket.send(JSON.stringify({ type: 'PONG' }));
-          return;
-        }
-
+        const payload = JSON.parse(message);
+        logger.info(`Received WS message from User ${socketUserId}:`, payload);
       } catch (err) {
-        logger.error(`WebSocket message error: ${err.message}`);
-        socket.send(JSON.stringify({ type: 'ERROR', message: 'Invalid message' }));
+        logger.error(`Failed to parse incoming WS message: ${err.message}`);
       }
     });
 
@@ -66,16 +70,14 @@ class WebSocketService {
         this._removeConnection(socketUserId, socket);
       }
     });
-  }
+  },
 
   /**
-   * Broadcasts a notification to a specific user.
-   * This uses PubSub so it works across multiple servers.
+   * Called by backend services when an action happens to a user
    */
-  notifyUser(userId, payload) {
-    // Publish to the megaphone
+  sendToUser(userId, payload) {
     pubSub.publish('USER_NOTIFICATION', JSON.stringify({ userId, data: payload }));
-  }
+  },
 
   // --- Internal Connection Management ---
 
@@ -85,7 +87,7 @@ class WebSocketService {
     }
     this.connections.get(userId).add(socket);
     logger.info(`User ${userId} connected to WebSockets. Connections for this user: ${this.connections.get(userId).size} | Total unique users online: ${this.connections.size}`);
-  }
+  },
 
   _removeConnection(userId, socket) {
     if (this.connections.has(userId)) {
@@ -96,7 +98,7 @@ class WebSocketService {
       }
       logger.info(`User ${userId} disconnected from WebSockets. Connections remaining for this user: ${userSockets.size} | Total unique users online: ${this.connections.size}`);
     }
-  }
+  },
 
   _deliverToLocalConnections(userId, payload) {
     if (this.connections.has(userId)) {
@@ -107,7 +109,7 @@ class WebSocketService {
         }
       }
     }
-  }
-}
+  },
+};
 
-export default new WebSocketService();
+export default websocketService;

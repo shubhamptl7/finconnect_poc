@@ -19,8 +19,16 @@ export default async function bankRoutes(fastify, _opts) {
   // 4. Get User's Actual Bank Accounts (for Dashboard)
   fastify.get('/accounts', { preHandler: [authenticate] }, BankController.getAccounts);
 
-  // Sync Transactions
+  // Sync Transactions (incremental – uses Plaid cursor)
   fastify.post('/sync', { preHandler: authenticate }, BankController.syncTransactions);
+
+  // Full Resync – wipes transactions, resets cursor, re-fetches all history
+  // Called after a keypair rotation to re-encrypt everything under the new public key
+  // Rate-limited to 3 per hour to prevent Plaid API quota abuse
+  fastify.post('/sync/full', {
+    preHandler: authenticate,
+    config: { rateLimit: { max: 3, timeWindow: '1 hour' } }
+  }, BankController.fullSyncTransactions);
 
   // Get Transactions
   fastify.get('/transactions', { preHandler: authenticate }, BankController.getTransactions);

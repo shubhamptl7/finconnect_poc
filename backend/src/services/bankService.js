@@ -3,10 +3,10 @@ import { Op } from 'sequelize';
 import db from '../models/index.js';
 import AppError from '../utils/appError.js';
 import STATUS_CODES from '../config/constants.js';
-import bankProvider from '../providers/plaidBankProvider.js';
+import bankProvider from '../providers/plaid/plaidBankProvider.js';
 import notificationService from './notificationService.js';
 import logger from '../config/logger.js';
-import { generateSearchHash } from '../utils/encryption.js';
+import { generateSearchHash, eciesEncrypt } from '../utils/encryption.js';
 
 /**
  * Bank Connection Service
@@ -114,7 +114,7 @@ const bankService = {
             available_balance: acc.availableBalance,
             last_synced_at: new Date(),
           },
-          { transaction: t }
+          { transaction: t, conflictFields: ['connection_id', 'external_account_id_hash'] }
         );
       }
 
@@ -193,7 +193,10 @@ const bankService = {
       });
     }
 
-    let totalAdded = 0;
+    const user = await db.User.findByPk(userId);
+    const publicKey = user ? user.e2ee_public_key : null;
+
+    let totalProcessed = 0;
 
     for (const conn of connections) {
       let hasMore = true;
@@ -219,16 +222,16 @@ const bankService = {
                   account_id: account.id,
                   // Plaid amounts are positive for debit (money leaving), negative for credit (money entering)
                   type: txn.amount < 0 ? 'credit' : 'debit',
-                  amount: Math.round(Math.abs(txn.amount) * 1000), // Standardize to absolute amount in baisas/cents
                   currency: txn.iso_currency_code || 'USD',
                   status: txn.pending ? 'pending' : 'settled',
                   category: txn.category ? txn.category[0] : 'Uncategorized',
-                  description: txn.name,
+                  description_encrypted: publicKey ? eciesEncrypt(publicKey, String(txn.name || 'Unknown'), 'finconnect-txn-desc-v1') : null,
+                  amount_encrypted: publicKey ? eciesEncrypt(publicKey, String(Math.round(Math.abs(txn.amount || 0) * 1000)), 'finconnect-txn-amt-v1') : null,
                   transaction_date: txn.date || txn.authorized_date || new Date(),
                 },
-                { transaction: t }
+                { transaction: t, conflictFields: ['external_transaction_id_hash'] }
               );
-              totalAdded++;
+              totalProcessed++;
             }
           }
 
@@ -271,7 +274,147 @@ const bankService = {
       }
     }
 
-    return { success: true, transactionsAdded: totalAdded };
+    return { success: true, transactionsAdded: totalProcessed };
+  },
+
+  /**
+   * Full re-sync: wipes all existing transactions for the user, resets all Plaid sync
+   * cursors to null, then performs a fresh full sync from the beginning of history.
+   * 
+   * Called after a key rotation (resetE2eeKeypair) to re-encrypt all transactions
+   * under the user's new public key.
+   */
+  async fullSyncTransactions(userId) {
+    // 1. Get the user's latest public key
+    const user = await db.User.findByPk(userId);
+    const publicKey = user ? user.e2ee_public_key : null;
+
+    // 2. Find all active connections
+    const connections = await db.BankConnection.findAll({
+      where: { user_id: userId, status: 'active' },
+    });
+
+    if (connections.length === 0) {
+      return { success: true, transactionsAdded: 0, message: 'No active connections to sync' };
+    }
+
+    // SAFETY FIX: Verify Plaid is reachable BEFORE wiping existing data.
+    // Pre-flight: attempt first sync page for each connection. If any fail, abort entirely
+    // so we don't wipe data and then fail to restore it.
+    const prefetchedPages = [];
+    for (const conn of connections) {
+      try {
+        const firstPage = await bankProvider.syncTransactions(conn.access_token, null);
+        prefetchedPages.push({ conn, firstPage });
+      } catch (err) {
+        logger.error(`[fullSync] Plaid pre-flight check failed for connection ${conn.id}: ${err.message}`);
+        throw new Error(`Cannot perform full re-sync: Plaid is unavailable for connection ${conn.id}. Transaction history preserved.`);
+      }
+    }
+
+    // 3. Plaid is verified reachable — now safely wipe and reset cursors
+    const wipeT = await db.sequelize.transaction();
+    try {
+      const accounts = await db.BankAccount.findAll({
+        where: { user_id: userId },
+        attributes: ['id'],
+        transaction: wipeT,
+      });
+      const accountIds = accounts.map((a) => a.id);
+
+      if (accountIds.length > 0) {
+        await db.Transaction.destroy({
+          where: { account_id: accountIds },
+          transaction: wipeT,
+        });
+      }
+
+      for (const conn of connections) {
+        conn.sync_cursor = null;
+        await conn.save({ transaction: wipeT });
+      }
+
+      await wipeT.commit();
+    } catch (err) {
+      await wipeT.rollback();
+      logger.error(`fullSyncTransactions wipe failed: ${err.message}`);
+      throw err;
+    }
+
+    // 4. Re-sync from the pre-fetched first pages, then continue pagination
+    let totalProcessed = 0;
+
+    for (const { conn, firstPage } of prefetchedPages) {
+      let pages = [firstPage];
+      let cursor = firstPage.nextCursor;
+      let hasMore = firstPage.hasMore;
+
+      // Collect remaining pages
+      while (hasMore) {
+        const nextPage = await bankProvider.syncTransactions(conn.access_token, cursor);
+        pages.push(nextPage);
+        cursor = nextPage.nextCursor;
+        hasMore = nextPage.hasMore;
+      }
+
+      // Write all pages into DB
+      for (const syncData of pages) {
+        const t = await db.sequelize.transaction();
+        try {
+          const toProcess = [...syncData.added, ...syncData.modified];
+          for (const txn of toProcess) {
+            const account = await db.BankAccount.findOne({
+              where: { external_account_id_hash: generateSearchHash(txn.account_id) },
+              transaction: t,
+            });
+            if (account) {
+              await db.Transaction.upsert(
+                {
+                  external_transaction_id: txn.transaction_id,
+                  account_id: account.id,
+                  type: txn.amount < 0 ? 'credit' : 'debit',
+                  currency: txn.iso_currency_code || 'USD',
+                  status: txn.pending ? 'pending' : 'settled',
+                  category: txn.category ? txn.category[0] : 'Uncategorized',
+                  description_encrypted: publicKey
+                    ? eciesEncrypt(publicKey, String(txn.name || 'Unknown'), 'finconnect-txn-desc-v1')
+                    : null,
+                  amount_encrypted: publicKey
+                    ? eciesEncrypt(publicKey, String(Math.round(Math.abs(txn.amount || 0) * 1000)), 'finconnect-txn-amt-v1')
+                    : null,
+                  transaction_date: txn.date || txn.authorized_date || new Date(),
+                },
+                { transaction: t, conflictFields: ['external_transaction_id_hash'] }
+              );
+              totalProcessed++;
+            }
+          }
+
+          conn.sync_cursor = syncData.nextCursor;
+          await conn.save({ transaction: t });
+
+          await db.AuditLog.create(
+            {
+              user_id: userId,
+              action: 'transactions_full_resync',
+              metadata: {
+                connection_id: conn.id,
+                processed: toProcess.length,
+              },
+            },
+            { transaction: t }
+          );
+
+          await t.commit();
+        } catch (err) {
+          await t.rollback();
+          logger.error(`fullSyncTransactions error for connection ${conn.id}: ${err.message}`);
+          throw err;
+        }
+      }
+    }
+
+    return { success: true, transactionsAdded: totalProcessed };
   },
 
   /**

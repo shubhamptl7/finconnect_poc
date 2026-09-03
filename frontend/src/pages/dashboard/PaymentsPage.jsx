@@ -262,7 +262,7 @@ export default function PaymentsPage() {
                         <div className="flex items-center justify-between mb-3">
                           <h3 className="text-sm font-semibold text-slate-700">To Recipient</h3>
                           {form.beneficiaryId && (
-                            <button type="button" onClick={() => setForm(p => ({ ...p, beneficiaryId: '', recipientName: '', recipientIBAN: '' }))}
+                            <button type="button" onClick={() => setForm(p => ({ ...p, beneficiaryId: '', recipientName: '', recipientIBAN: '', recipientBacsAccount: '', recipientSortCode: '' }))}
                               className="text-xs text-slate-400 hover:text-slate-600 underline cursor-pointer">
                               Clear
                             </button>
@@ -276,7 +276,14 @@ export default function PaymentsPage() {
                             <div className="flex gap-2 flex-wrap">
                               {beneficiaries.slice(0, 4).map(b => (
                                 <button key={b.id} type="button"
-                                  onClick={() => setForm(p => ({ ...p, beneficiaryId: b.id, recipientName: b.name, recipientIBAN: b.iban || '' }))}
+                                  onClick={() => setForm(p => ({
+                                    ...p,
+                                    beneficiaryId: b.id,
+                                    recipientName: b.name,
+                                    recipientIBAN: b.iban || '',
+                                    recipientBacsAccount: b.bacs_account || '',
+                                    recipientSortCode: b.sort_code || '',
+                                  }))}
                                   className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:border-brand-500 hover:bg-brand-50 text-left transition-all text-xs cursor-pointer">
                                   <div className={cn('w-6 h-6 rounded-lg flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0',
                                     b.is_internal ? 'bg-brand-600' : 'bg-slate-700')}>

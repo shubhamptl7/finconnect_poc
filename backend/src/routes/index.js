@@ -7,6 +7,7 @@ import beneficiaryRoutes from './beneficiaryRoutes.js';
 import adminRoutes from './admin/index.js';
 import profileRoutes from './profileRoutes.js';
 import notificationRoutes from './notificationRoutes.js';
+import loanRoutes from './loanRoutes.js';
 
 export default async function routes(fastify, _opts) {
   fastify.register(authRoutes, { prefix: '/auth' });
@@ -18,4 +19,5 @@ export default async function routes(fastify, _opts) {
   fastify.register(adminRoutes, { prefix: '/admin' });
   fastify.register(profileRoutes, { prefix: '/profile' });
   fastify.register(notificationRoutes, { prefix: '/notifications' });
+  fastify.register(loanRoutes, { prefix: '/loans' });
 }

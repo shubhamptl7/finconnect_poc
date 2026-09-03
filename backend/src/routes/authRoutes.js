@@ -5,15 +5,15 @@ import { authenticate } from '../middlewares/auth.js';
 
 export default async function authRoutes(fastify, _opts) {
   // Registration route with strict rate limiting (5 per hour)
-  fastify.post('/register', { 
-    ...registerSchema, 
-    config: { rateLimit: { max: 5, timeWindow: '1 hour' } } 
+  fastify.post('/register', {
+    ...registerSchema,
+    config: { rateLimit: { max: 5, timeWindow: '1 hour' } }
   }, AuthController.register);
 
   // Login route with strict rate limiting (5 per 15 minutes)
-  fastify.post('/login', { 
-    ...loginSchema, 
-    config: { rateLimit: { max: 5, timeWindow: 15 * 60 * 1000 } } 
+  fastify.post('/login', {
+    ...loginSchema,
+    config: { rateLimit: { max: 5, timeWindow: 15 * 60 * 1000 } }
   }, AuthController.login);
 
   // Logout route (requires authentication technically, but safe to expose)
@@ -28,7 +28,7 @@ export default async function authRoutes(fastify, _opts) {
         properties: { token: { type: 'string' } }
       }
     },
-    config: { rateLimit: { max: 5, timeWindow: 15 * 60 * 1000 } }
+    config: { rateLimit: { max: 500, timeWindow: 15 * 60 * 1000 } }
   }, AuthController.verifyEmail);
 
   // Forgot password route

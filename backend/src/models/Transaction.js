@@ -37,9 +37,9 @@ const defineTransaction = (sequelize, DataTypes) => {
         type: DataTypes.STRING(20), // 'credit' or 'debit'
         allowNull: false,
       },
-      amount: {
-        type: DataTypes.DECIMAL(15, 3),
-        allowNull: false,
+      amount_encrypted: {
+        type: DataTypes.TEXT,
+        allowNull: true,
       },
       currency: {
         type: DataTypes.STRING(3),
@@ -57,7 +57,7 @@ const defineTransaction = (sequelize, DataTypes) => {
         type: DataTypes.STRING(150),
         allowNull: true,
       },
-      description: {
+      description_encrypted: {
         type: DataTypes.TEXT,
         allowNull: true,
       },

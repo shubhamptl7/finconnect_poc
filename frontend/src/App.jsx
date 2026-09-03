@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AppProvider, useApp } from '@/store/AppContext'
 import { ToastContainer } from '@/components/ui'
+import RecoveryCodeScreen from '@/components/RecoveryCodeScreen'
 
 // Pages
 import LandingPage from '@/pages/LandingPage'
@@ -88,8 +89,9 @@ export default function App() {
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        <RecoveryCodeScreen />
+        <ToastLayer />
       </BrowserRouter>
-      <ToastLayer />
     </AppProvider>
   )
 }

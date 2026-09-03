@@ -2,9 +2,9 @@ import { Op } from 'sequelize';
 
 import db from '../models/index.js';
 import logger from '../config/logger.js';
-import { generateSearchHash } from '../utils/encryption.js';
+import { generateSearchHash, eciesEncrypt } from '../utils/encryption.js';
 
-class WebhookService {
+const webhookService = {
   async processPlaidWebhook(payload) {
     logger.info(`Processing Plaid Webhook: ${payload.webhook_type} - ${payload.webhook_code}`);
 
@@ -14,16 +14,22 @@ class WebhookService {
         const paymentId = payload.payment_id;
         const newStatus = payload.new_payment_status; // e.g., PAYMENT_STATUS_EXECUTED
 
-        const payment = await db.Payment.findOne({
-          where: { provider_reference_hash: generateSearchHash(paymentId) },
-          include: [
-            { model: db.Beneficiary, as: 'beneficiary' },
-            { model: db.User, as: 'user' }
-          ],
-        });
+        // SECURITY FIX: Wrap the entire status check + settlement in a single transaction
+        // with a row-level lock (SELECT FOR UPDATE). This prevents duplicate webhooks from
+        // triggering double settlement (double debit + double P2P credit).
+        await db.sequelize.transaction(async (lockTxn) => {
+          const payment = await db.Payment.findOne({
+            where: { provider_reference_hash: generateSearchHash(paymentId) },
+            lock: true,         // SELECT FOR UPDATE — blocks concurrent transactions on payment row
+            transaction: lockTxn,
+          });
 
-        if (payment) {
-          let internalStatus = 'pending';
+          if (!payment) {
+            logger.warn(`Received webhook for unknown payment_id: ${paymentId}`);
+            return;
+          }
+
+          let internalStatus = payment.status; // keep current if unmapped
           if (newStatus === 'PAYMENT_STATUS_EXECUTED' || newStatus === 'PAYMENT_STATUS_SETTLED') {
             internalStatus = 'settled';
           } else if (
@@ -33,18 +39,22 @@ class WebhookService {
             internalStatus = 'failed';
           } else if (newStatus === 'PAYMENT_STATUS_CANCELLED') {
             internalStatus = 'cancelled';
+          } else {
+            internalStatus = 'pending';
           }
 
           const oldStatus = payment.status;
-          payment.status = internalStatus;
-          await payment.save();
 
-          // If the payment just successfully executed, write to ledger and handle P2P
-          if (internalStatus === 'settled' && oldStatus !== 'settled' && payment.account_id) {
-            await this._settlePayment(payment);
+          // IDEMPOTENCY: if already settled, skip silently — this is a retry/duplicate webhook
+          if (internalStatus === 'settled' && oldStatus === 'settled') {
+            logger.info(`[Webhook] Payment ${payment.id} already settled — skipping duplicate webhook`);
+            return;
           }
 
-          // Audit log for payment status update
+          payment.status = internalStatus;
+          await payment.save({ transaction: lockTxn });
+
+          // Audit log for payment status update (within same transaction)
           await db.AuditLog.create({
             user_id: payment.user_id,
             action: 'payment_status_updated',
@@ -55,13 +65,25 @@ class WebhookService {
               new_status: internalStatus,
               raw_webhook_status: newStatus,
             },
-          });
+          }, { transaction: lockTxn });
 
           logger.info(
             `Updated Payment ${payment.id} status from ${oldStatus} to ${internalStatus}`
           );
-        } else {
-          logger.warn(`Received webhook for unknown payment_id: ${paymentId}`);
+
+          // If the payment just successfully executed, settle it (debit sender, credit recipient P2P)
+          // Done AFTER the lock is committed to avoid nested transaction issues
+          if (internalStatus === 'settled' && oldStatus !== 'settled' && payment.account_id) {
+            // Store for settlement after transaction commits
+            this._pendingSettlement = payment;
+          }
+        });
+
+        // Run settlement OUTSIDE the lock transaction (it manages its own transaction internally)
+        if (this._pendingSettlement) {
+          const paymentToSettle = this._pendingSettlement;
+          this._pendingSettlement = null;
+          await this._settlePayment(paymentToSettle);
         }
       }
     }
@@ -76,6 +98,7 @@ class WebhookService {
 
         await db.AuditLog.create({
           action: 'transactions_sync_available',
+          user_id: null, // webhook from Plaid is not user-specific
           metadata: { item_id: itemId, webhook_code: payload.webhook_code },
         });
 
@@ -84,7 +107,7 @@ class WebhookService {
     }
 
     return true;
-  }
+  },
 
   /**
    * Settles a payment by:
@@ -102,9 +125,25 @@ class WebhookService {
   async _settlePayment(payment) {
     const t = await db.sequelize.transaction();
     try {
+      // Re-fetch sender user to get fresh e2ee_public_key
+      const senderUser = await db.User.findByPk(payment.user_id, { transaction: t });
+      const senderPublicKey = senderUser?.e2ee_public_key;
+
+      // Guard: if amount is null (already settled?), abort gracefully
+      if (payment.amount === null || payment.amount === undefined) {
+        logger.warn(`[Ledger] Payment ${payment.id} has no amount — skipping settlement (may already be settled).`);
+        await t.rollback();
+        return;
+      }
+
       const description =
         payment.note ||
         `Transfer to ${payment.recipient_name || payment.beneficiary?.name || 'Beneficiary'}`;
+
+      const amountStr = String(payment.amount);
+
+      const descriptionEnc = senderPublicKey ? eciesEncrypt(senderPublicKey, description, 'finconnect-txn-desc-v1') : null;
+      const amountEnc = senderPublicKey ? eciesEncrypt(senderPublicKey, amountStr, 'finconnect-txn-amt-v1') : null;
 
       // 1. Debit transaction for sender
       await db.Transaction.upsert(
@@ -112,11 +151,11 @@ class WebhookService {
           external_transaction_id: `pmt_${payment.provider_reference || payment.id}`,
           account_id: payment.account_id,
           type: 'debit',
-          amount: payment.amount,
           currency: 'GBP',
           status: 'settled',
           category: 'Transfer',
-          description,
+          description_encrypted: descriptionEnc,
+          amount_encrypted: amountEnc,
           transaction_date: new Date(),
         },
         { transaction: t }
@@ -131,7 +170,7 @@ class WebhookService {
 
       logger.info(`[Ledger] Sender debit written for Payment ${payment.id}`);
 
-      // 3. ── P2P Engine ──────────────────────────────────────────────
+      // 3. P2P Engine
       // Look up by IBAN or BACS
       let recipientAccount = null;
 
@@ -169,19 +208,27 @@ class WebhookService {
           transaction: t,
         });
 
+        const recipientUser = await db.User.findByPk(recipientAccount.user_id, { transaction: t });
+        const recipientPublicKey = recipientUser?.e2ee_public_key;
+
+        const creditDescription = payment.note
+          ? `Transfer from ${senderUser?.name || 'PayOman User'} - ${payment.note}`
+          : `Transfer from ${senderUser?.name || 'PayOman User'}`;
+
+        const creditDescEnc = recipientPublicKey ? eciesEncrypt(recipientPublicKey, creditDescription, 'finconnect-txn-desc-v1') : null;
+        const creditAmountEnc = recipientPublicKey ? eciesEncrypt(recipientPublicKey, amountStr, 'finconnect-txn-amt-v1') : null;
+
         // 3b. Inject a credit transaction into the recipient's feed
         await db.Transaction.upsert(
           {
             external_transaction_id: `p2p_credit_${payment.id}`,
             account_id: recipientAccount.id,
             type: 'credit',
-            amount: payment.amount,
             currency: 'GBP',
             status: 'settled',
             category: 'Transfer',
-            description: payment.note 
-              ? `Transfer from ${payment.user?.name || 'PayOman User'} - ${payment.note}`
-              : `Transfer from ${payment.user?.name || 'PayOman User'}`,
+            description_encrypted: creditDescEnc,
+            amount_encrypted: creditAmountEnc,
             transaction_date: new Date(),
           },
           { transaction: t }
@@ -196,11 +243,11 @@ class WebhookService {
           {
             user_id: recipientAccount.user_id,
             title: 'Money Received!',
-            message: `You received ${(payment.amount / 1000).toFixed(3)} GBP from ${payment.user?.name || 'a PayOman user'}.`,
+            message: `You received ${(payment.amount / 1000).toFixed(3)} GBP from ${senderUser?.name || 'a PayOman user'}.`,
             type: 'transaction'
           },
           { transaction: t }
-        ).catch(() => {}); // Non-fatal
+        ).catch(() => { }); // Non-fatal
 
 
         logger.info(
@@ -210,14 +257,28 @@ class WebhookService {
         logger.info(`[P2P] No internal recipient found — external transfer only.`);
       }
 
+      // 4. Encrypt payment fields to close the plaintext processing window
+      const pmtAmountEnc = senderPublicKey ? eciesEncrypt(senderPublicKey, amountStr, 'finconnect-pmt-amt-v1') : null;
+      const pmtNoteEnc = senderPublicKey ? eciesEncrypt(senderPublicKey, payment.note || '', 'finconnect-pmt-note-v1') : null;
+      const pmtRecipientNameEnc = senderPublicKey ? eciesEncrypt(senderPublicKey, payment.recipient_name || '', 'finconnect-pmt-rname-v1') : null;
+
+      await payment.update({
+        amount: null,
+        note: null,
+        recipient_name: null,
+        amount_encrypted: pmtAmountEnc,
+        note_encrypted: pmtNoteEnc,
+        recipient_name_encrypted: pmtRecipientNameEnc
+      }, { transaction: t });
+
       await t.commit();
-      logger.info(`Payment ${payment.id} fully settled.`);
+      logger.info(`Payment ${payment.id} fully settled and encrypted.`);
     } catch (err) {
       await t.rollback();
       logger.error(`Failed to settle Payment ${payment.id}: ${err.message}`);
       throw err;
     }
-  }
-}
+  },
+};
 
-export default new WebhookService();
+export default webhookService;

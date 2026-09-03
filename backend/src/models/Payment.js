@@ -11,8 +11,12 @@ const definePayment = (sequelize, DataTypes) => {
         primaryKey: true,
       },
       amount: {
-        type: DataTypes.DECIMAL(15, 3),
-        allowNull: false,
+        type: DataTypes.INTEGER, // Changed to INTEGER to reflect actual usage in baisas/cents, and nullable for E2EE window
+        allowNull: true,
+      },
+      amount_encrypted: {
+        type: DataTypes.TEXT,
+        allowNull: true,
       },
       status: {
         type: DataTypes.STRING(50),
@@ -46,6 +50,10 @@ const definePayment = (sequelize, DataTypes) => {
       },
       note: {
         type: DataTypes.STRING(255),
+        allowNull: true,
+      },
+      note_encrypted: {
+        type: DataTypes.TEXT,
         allowNull: true,
       },
       is_internal: {
@@ -92,6 +100,10 @@ const definePayment = (sequelize, DataTypes) => {
       recipient_name: {
         // WHY: Stored for display in transaction descriptions.
         type: DataTypes.STRING(150),
+        allowNull: true,
+      },
+      recipient_name_encrypted: {
+        type: DataTypes.TEXT,
         allowNull: true,
       },
     },

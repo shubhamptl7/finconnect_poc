@@ -6,7 +6,7 @@ import {
   Bell, Search, Menu, X, Receipt, Building2,
   HelpCircle, LogOut, BarChart3,
   ChevronLeft, Pin, Landmark, Wallet,
-  CheckCircle2, Shield, Info, CreditCard,
+  CheckCircle2, Shield, Info, CreditCard, User, Lock,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/AppContext'
@@ -312,11 +312,17 @@ function NotificationPanel({ onClose }) {
 
 // ─── Top Bar ───────────────────────────────────────────────
 export function TopBar({ title, subtitle }) {
-  const { user, notifications, unreadCount, markAllRead } = useApp()
+  const { user, notifications, unreadCount, markAllRead, logout } = useApp()
   const [showNotifications, setShowNotifications] = useState(false)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
   const [search, setSearch] = useState('')
   const navigate = useNavigate()
+
+  const handleLogout = async () => {
+    setShowProfileMenu(false)
+    await logout()
+    navigate('/auth/login')
+  }
 
   return (
     <header className="h-16 bg-white border-b border-slate-100 flex items-center justify-between pl-16 lg:pl-6 pr-6 flex-shrink-0 sticky top-0 z-10">
@@ -397,15 +403,25 @@ export function TopBar({ title, subtitle }) {
               >
                 <button
                   onClick={() => { setShowProfileMenu(false); navigate('/app/profile/update') }}
-                  className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-brand-600 transition-colors cursor-pointer"
+                  className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-brand-600 transition-colors cursor-pointer flex items-center gap-2"
                 >
-                  Update Profile
+                  <User size={14} className="text-slate-400" />
+                  <span>Update Profile</span>
                 </button>
                 <button
                   onClick={() => { setShowProfileMenu(false); navigate('/app/profile/password') }}
-                  className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-brand-600 transition-colors cursor-pointer"
+                  className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-brand-600 transition-colors cursor-pointer flex items-center gap-2"
                 >
-                  Change Password
+                  <Lock size={14} className="text-slate-400" />
+                  <span>Change Password</span>
+                </button>
+                <div className="my-1 border-t border-slate-100" />
+                <button
+                  onClick={handleLogout}
+                  className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors cursor-pointer flex items-center gap-2 font-medium"
+                >
+                  <LogOut size={14} />
+                  <span>Logout</span>
                 </button>
               </motion.div>
             )}

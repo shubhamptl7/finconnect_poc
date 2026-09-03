@@ -44,6 +44,14 @@ export const authenticate = async (request, reply) => {
       );
     }
 
+    if (!user.is_email_verified) {
+      throw new AppError(
+        'Please verify your email address to access this resource.',
+        STATUS_CODES.FORBIDDEN,
+        { code: 'EMAIL_UNVERIFIED', userId: user.id }
+      );
+    }
+
     if (user.status === 'unverified') {
       // Include 'USER_UNVERIFIED' code and userId so frontend can redirect to KYC if needed
       throw new AppError(

@@ -98,6 +98,27 @@ export const syncTransactions = async (request, reply) => {
   }
 };
 
+/**
+ * Full resync: wipes existing transactions, resets Plaid cursors,
+ * then re-fetches all history encrypted under the current public key.
+ * Called after a keypair rotation.
+ */
+export const fullSyncTransactions = async (request, reply) => {
+  try {
+    const result = await bankService.fullSyncTransactions(request.user.id);
+
+    return successResponse({
+      reply,
+      statusCode: STATUS_CODES.OK,
+      message: 'Full transaction resync completed',
+      data: result,
+    });
+  } catch (error) {
+    logger.error(`fullSyncTransactions error: ${error.message}`);
+    throw error;
+  }
+};
+
 export const getTransactions = async (request, reply) => {
   try {
     const transactions = await bankService.getTransactions(request.user.id);

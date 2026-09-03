@@ -23,8 +23,12 @@ export function useNotifications(isAuthenticated, API_URL, addToast) {
   const connectWebSocket = useCallback(() => {
     if (ws.current) return;
 
-    // Convert http://... to ws://...
-    const wsUrl = API_URL.replace(/^http/, 'ws') + '/notifications/ws';
+    // Construct WebSocket URL handling relative or absolute API_URL
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const wsUrl = API_URL.startsWith('http')
+      ? API_URL.replace(/^http/, 'ws') + '/notifications/ws'
+      : `${protocol}//${host}${API_URL}/notifications/ws`;
     const socket = new WebSocket(wsUrl);
 
     socket.onopen = () => {

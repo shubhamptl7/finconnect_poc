@@ -1,5 +1,5 @@
-import logger from '../config/logger.js';
-import config from '../config/env.js';
+import logger from '../../config/logger.js';
+import config from '../../config/env.js';
 
 import plaidClient from './plaidClient.js';
 
@@ -244,6 +244,27 @@ class PlaidBankProvider {
     } catch (error) {
       logger.error(`Plaid createPaymentToken failed: ${error.message}`);
       throw new Error('Failed to generate payment authorization token');
+    }
+  }
+
+  /**
+   * Cancels a previously created Payment Intent via Plaid's /payment_initiation/payment/reverse API.
+   * Note: Plaid Sandbox doesn't always support cancellation — this is a best-effort call.
+   */
+  async cancelPayment(plaidPaymentId) {
+    try {
+      await plaidClient.paymentInitiationPaymentReverse({
+        payment_id: plaidPaymentId,
+        idempotency_key: `cancel_${plaidPaymentId}_${Date.now()}`,
+        reference: 'Cancellation requested by user',
+        amount: { currency: 'GBP', value: 0 }, // Plaid requires amount on reverse
+      });
+      return true;
+    } catch (error) {
+      // Log but don't throw — Plaid may not support cancellation for all payment states.
+      // Our DB status is still updated to 'cancelled' regardless.
+      logger.warn(`Plaid cancelPayment failed (non-fatal): ${error.message}`);
+      return false;
     }
   }
 }

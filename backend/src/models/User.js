@@ -10,6 +10,18 @@ const defineUser = (sequelize, DataTypes) => {
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true,
       },
+      e2ee_public_key: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+      },
+      e2ee_key_backup: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+      },
+      key_version: {
+        type: DataTypes.INTEGER,
+        defaultValue: 1,
+      },
 
       email: {
         type: DataTypes.TEXT,
@@ -120,6 +132,13 @@ const defineUser = (sequelize, DataTypes) => {
     User.hasMany(models.AuditLog, { foreignKey: 'user_id', as: 'audit_logs' });
     User.hasMany(models.Notification, { foreignKey: 'user_id', as: 'notifications' });
     User.hasMany(models.VerificationToken, { foreignKey: 'user_id', as: 'verification_tokens' });
+    User.hasMany(models.LoanApplication, { foreignKey: 'user_id', as: 'loan_applications' });
+    User.hasMany(models.LoanOffer, { foreignKey: 'user_id', as: 'loan_offers' });
+    User.hasMany(models.Loan, { foreignKey: 'user_id', as: 'loans' });
+    User.hasMany(models.LoanPayment, { foreignKey: 'user_id', as: 'loan_payments' });
+    User.hasMany(models.LoanVerification, { foreignKey: 'user_id', as: 'loan_verifications' });
+    User.hasMany(models.ColumnCustomerAccount, { foreignKey: 'user_id', as: 'column_customer_accounts' });
+    User.hasMany(models.LoanAutopayAuthorization, { foreignKey: 'user_id', as: 'loan_autopay_authorizations' });
   };
 
   // SECURITY: Hash password before saving to DB

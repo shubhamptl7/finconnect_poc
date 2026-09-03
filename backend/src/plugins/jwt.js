@@ -4,8 +4,14 @@ import fastifyJwt from '@fastify/jwt';
 import config from '../config/env.js';
 
 async function jwtPlugin(fastify, options) {
+  // SECURITY: Fail hard at startup if JWT_SECRET is not configured.
+  // A missing secret would silently fall back to a publicly known key, enabling auth bypass.
+  if (!config.jwt_secret) {
+    throw new Error('FATAL: JWT_SECRET environment variable is not set. Server cannot start.');
+  }
+
   fastify.register(fastifyJwt, {
-    secret: config.jwt_secret || 'super_secret_fallback_key_for_dev_only',
+    secret: config.jwt_secret,
     cookie: {
       cookieName: 'token',
       signed: false, // Ensure we don't accidentally sign the JWT string again as a fastify-cookie

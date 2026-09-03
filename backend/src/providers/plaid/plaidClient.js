@@ -1,6 +1,6 @@
 import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
 
-import config from '../config/env.js';
+import config from '../../config/env.js';
 
 /**
  * Singleton Plaid Client Configuration

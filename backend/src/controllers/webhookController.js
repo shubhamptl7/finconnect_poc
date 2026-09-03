@@ -3,18 +3,51 @@ import { importJWK, jwtVerify, decodeProtectedHeader } from 'jose';
 import logger from '../config/logger.js';
 import STATUS_CODES from '../config/constants.js';
 import webhookService from '../services/webhookService.js';
-import plaidClient from '../providers/plaidClient.js';
+import plaidClient from '../providers/plaid/plaidClient.js';
 
-// Simple LRU-style cache for Plaid Public Keys to avoid fetching on every webhook
-const keyCache = new Map();
+// Size-bounded, TTL-aware cache for Plaid public verification keys.
+// Max 50 entries, 1-hour TTL — prevents memory exhaustion from fabricated key IDs.
+const KEY_CACHE_MAX = 50;
+const KEY_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+class BoundedKeyCache {
+  constructor() {
+    this._store = new Map(); // Map<keyId, { key, expiresAt }>
+  }
+
+  get(keyId) {
+    const entry = this._store.get(keyId);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      this._store.delete(keyId);
+      return null;
+    }
+    return entry.key;
+  }
+
+  set(keyId, key) {
+    // Evict oldest entry if at capacity
+    if (this._store.size >= KEY_CACHE_MAX) {
+      const firstKey = this._store.keys().next().value;
+      this._store.delete(firstKey);
+    }
+    this._store.set(keyId, { key, expiresAt: Date.now() + KEY_CACHE_TTL_MS });
+  }
+
+  has(keyId) {
+    return this.get(keyId) !== null;
+  }
+}
+
+const keyCache = new BoundedKeyCache();
 
 /**
  * Helper function to get Plaid's public key by Key ID.
  */
 async function getPlaidKey(keyId) {
-  if (keyCache.has(keyId)) {
-    return keyCache.get(keyId);
-  }
+  const cached = keyCache.get(keyId);
+  if (cached) return cached;
+
   const response = await plaidClient.webhookVerificationKeyGet({ key_id: keyId });
   const key = await importJWK(response.data.key);
   keyCache.set(keyId, key);
@@ -87,7 +120,7 @@ export const handlePlaidWebhook = async (request, reply) => {
     // Return 500 INTERNAL SERVER ERROR so Plaid knows we failed and will retry with exponential backoff.
     // This is critical to ensure zero data loss (e.g. dropped payment settlements).
     return reply
-      .code(STATUS_CODES.INTERNAL_SERVER_ERROR)
+      .code(STATUS_CODES.SERVER_ERROR)
       .send({ error: 'Internal processing error' });
   }
 };

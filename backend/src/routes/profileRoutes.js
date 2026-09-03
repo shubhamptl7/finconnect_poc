@@ -5,4 +5,7 @@ import { updateProfileSchema, changePasswordSchema } from '../validations/profil
 export default async function profileRoutes(fastify, _opts) {
   fastify.patch('/', { preHandler: authenticate, ...updateProfileSchema }, ProfileController.updateProfile);
   fastify.patch('/password', { preHandler: authenticate, ...changePasswordSchema }, ProfileController.changePassword);
+  fastify.post('/verify-password', { preHandler: authenticate }, ProfileController.verifyPassword);
+  fastify.patch('/e2ee-key', { preHandler: authenticate }, ProfileController.updateE2eeKey);
+  fastify.post('/e2ee-key/consume-emergency', { preHandler: authenticate }, ProfileController.consumeEmergencySlot);
 }

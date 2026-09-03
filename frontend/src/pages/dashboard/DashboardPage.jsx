@@ -281,7 +281,7 @@ function RecentTransactions() {
                 {style.icon || txn.category.slice(0, 2).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-900 truncate">{txn.description}</p>
+                <p className="text-sm font-medium text-slate-900 truncate">{txn.description || <span className="text-slate-400 italic">Encrypted</span>}</p>
                 <p className="text-[11px] text-slate-400 mt-0.5">{formatRelative(txn.transaction_date || txn.date)} · {txn.category}</p>
               </div>
               <div className="text-right flex-shrink-0">
@@ -289,7 +289,10 @@ function RecentTransactions() {
                   'text-sm font-semibold tabular-nums',
                   isCredit ? 'text-emerald-600' : 'text-slate-800'
                 )}>
-                  {isCredit ? '+' : '−'}{formatCurrency(Math.abs(parseFloat(txn.amount)))}
+                  {txn.amount === null
+                    ? <span className="text-slate-400" title="Encrypted – enter recovery code to view">•••</span>
+                    : <>{isCredit ? '+' : '−'}{formatCurrency(Math.abs(parseFloat(txn.amount || 0)))}</>
+                  }
                 </p>
                 {txn.status === 'pending' && (
                   <Badge variant="warning" size="sm" className="mt-0.5">Pending</Badge>

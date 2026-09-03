@@ -26,6 +26,8 @@ const authService = {
       phone_number: phone || null,
       date_of_birth: dateOfBirth || null,
       is_email_verified: false,
+      e2ee_public_key: data.e2ee_public_key ? (typeof data.e2ee_public_key === 'string' ? data.e2ee_public_key : JSON.stringify(data.e2ee_public_key)) : null,
+      e2ee_key_backup: data.e2ee_key_backup ? (typeof data.e2ee_key_backup === 'string' ? data.e2ee_key_backup : JSON.stringify(data.e2ee_key_backup)) : null,
     });
 
     // Generate email verification token
@@ -151,9 +153,12 @@ const authService = {
       return;
     }
 
-    // Security Rule: Must be verified to reset password
+    // SECURITY FIX: Also fail silently for unverified emails to prevent account enumeration.
+    // Previously this threw an AppError which revealed that the account exists but is unverified.
+    // Now we log internally and return silently — indistinguishable from a non-existent email.
     if (!user.is_email_verified) {
-      throw new AppError('Cannot reset password for unverified email address.', STATUS_CODES.FORBIDDEN);
+      logger.info(`Forgot password requested for unverified email: ${normalizedEmail}`);
+      return;
     }
 
     // Generate reset token

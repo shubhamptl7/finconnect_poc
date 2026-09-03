@@ -1,15 +1,67 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { User, Mail, Phone, Calendar, Shield, Lock, Key, AlertTriangle, ChevronRight, Activity, Camera, ArrowLeft, CheckCircle2 } from 'lucide-react'
+import { User, Mail, Phone, Calendar, Shield, Lock, Key, AlertTriangle, ChevronRight, Activity, Camera, ArrowLeft, CheckCircle2, LogOut, RefreshCw, TriangleAlert, ShieldCheck, Eye, Copy, Check } from 'lucide-react'
 import { useApp } from '@/store/AppContext'
 import { Card, Button, Input, Badge } from '@/components/ui'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { cn, formatRelative } from '@/lib/utils'
 
 export function MyProfile() {
-  const { user } = useApp()
+  const { user, logout, resetE2eeKeypair, verifyRecoveryPhrase } = useApp()
   const navigate = useNavigate()
+
+  // Key Rotation State
+  const [showRotateModal, setShowRotateModal] = useState(false)
+  const [rotatePassword, setRotatePassword] = useState('')
+  const [rotateConfirmText, setRotateConfirmText] = useState('')
+  const [rotating, setRotating] = useState(false)
+  const [rotateError, setRotateError] = useState('')
+
+  // Verify Phrase State
+  const [showVerifyModal, setShowVerifyModal] = useState(false)
+  const [verifyInput, setVerifyInput] = useState('')
+  const [verifying, setVerifying] = useState(false)
+  const [verifyResult, setVerifyResult] = useState(null)
+
+  const handleLogout = async () => {
+    await logout()
+    navigate('/auth/login')
+  }
+
+  const handleRotateConfirm = async () => {
+    if (!rotatePassword) {
+      setRotateError('Please enter your account password')
+      return
+    }
+    if (rotateConfirmText.trim().toUpperCase() !== 'ROTATE') return
+    setRotateError('')
+    setRotating(true)
+    try {
+      await resetE2eeKeypair(rotatePassword)
+      setShowRotateModal(false)
+      setRotatePassword('')
+      setRotateConfirmText('')
+    } catch (err) {
+      setRotateError(err.message || 'Failed to rotate security keys')
+    } finally {
+      setRotating(false)
+    }
+  }
+
+  const handleVerifyPhrase = async (e) => {
+    e.preventDefault()
+    setVerifying(true)
+    setVerifyResult(null)
+    try {
+      const res = await verifyRecoveryPhrase(verifyInput.trim())
+      setVerifyResult(typeof res === 'object' ? res : (res ? { success: true, message: '✓ Recovery secret is valid and active!' } : { success: false, message: '✕ Secret does not match your active account key.' }))
+    } catch (err) {
+      setVerifyResult({ success: false, message: err.message || 'Verification failed' })
+    } finally {
+      setVerifying(false)
+    }
+  }
 
   return (
     <AppLayout title="My Profile" subtitle="Manage your personal information and account settings">
@@ -61,8 +113,8 @@ export function MyProfile() {
                 <Shield size={18} />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-slate-900" style={{ fontFamily: 'Geist, IBM Plex Sans, system-ui' }}>Security</h3>
-                <p className="text-xs text-slate-500">Protect your account</p>
+                <h3 className="text-sm font-semibold text-slate-900" style={{ fontFamily: 'Geist, IBM Plex Sans, system-ui' }}>Security & Encryption</h3>
+                <p className="text-xs text-slate-500">Manage account security and E2EE keys</p>
               </div>
             </div>
 
@@ -76,6 +128,47 @@ export function MyProfile() {
                   <span className="text-sm font-semibold text-slate-700 group-hover:text-brand-700 transition-colors">Change Password</span>
                 </div>
                 <ChevronRight size={16} className="text-slate-300 group-hover:text-brand-500 transition-colors" />
+              </button>
+
+
+
+              <button
+                onClick={() => { setShowVerifyModal(true); setVerifyInput(''); setVerifyResult(null); }}
+                className="w-full flex items-center justify-between p-3.5 rounded-xl border border-indigo-100 hover:border-indigo-200 hover:bg-indigo-50 hover:shadow-sm transition-all text-left cursor-pointer group"
+              >
+                <div className="flex items-center gap-3">
+                  <ShieldCheck size={16} className="text-indigo-500 transition-colors" />
+                  <div>
+                    <span className="text-sm font-semibold text-indigo-900 block leading-none">Verify Recovery Secret / Code</span>
+                    <span className="text-[11px] text-indigo-600 mt-1 block">Test Primary Secret or Emergency Code</span>
+                  </div>
+                </div>
+                <ChevronRight size={16} className="text-indigo-300 group-hover:text-indigo-500 transition-colors" />
+              </button>
+
+              <button
+                onClick={() => { setShowRotateModal(true); setRotatePassword(''); setRotateConfirmText(''); setRotateError(''); }}
+                className="w-full flex items-center justify-between p-3.5 rounded-xl border border-amber-100 hover:border-amber-200 hover:bg-amber-50 hover:shadow-sm transition-all text-left cursor-pointer group"
+              >
+                <div className="flex items-center gap-3">
+                  <RefreshCw size={16} className="text-amber-500 transition-colors" />
+                  <div>
+                    <span className="text-sm font-semibold text-amber-900 block leading-none">Rotate E2EE Keys</span>
+                    <span className="text-[11px] text-amber-600 mt-1 block">Advanced: Password protected</span>
+                  </div>
+                </div>
+                <ChevronRight size={16} className="text-amber-300 group-hover:text-amber-500 transition-colors" />
+              </button>
+
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center justify-between p-3.5 rounded-xl border border-red-100 hover:border-red-200 hover:bg-red-50 hover:shadow-sm transition-all text-left cursor-pointer group"
+              >
+                <div className="flex items-center gap-3">
+                  <LogOut size={16} className="text-red-500 transition-colors" />
+                  <span className="text-sm font-semibold text-red-600 transition-colors">Logout Account</span>
+                </div>
+                <ChevronRight size={16} className="text-red-300 group-hover:text-red-500 transition-colors" />
               </button>
             </div>
           </Card>
@@ -92,6 +185,135 @@ export function MyProfile() {
         </div>
 
       </div>
+
+
+
+      {/* Modal for Verifying Recovery Phrase */}
+      {showVerifyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="bg-indigo-50 p-6 flex items-start gap-4 border-b border-indigo-100">
+              <div className="p-3 bg-indigo-100 rounded-full text-indigo-600 flex-shrink-0">
+                <ShieldCheck className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-indigo-900">Verify Recovery Phrase</h2>
+                <p className="text-xs text-indigo-700 mt-1">
+                  Enter your 12-word phrase to test if it matches your active account key.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleVerifyPhrase} className="p-6">
+              <textarea
+                required
+                rows={3}
+                value={verifyInput}
+                onChange={(e) => setVerifyInput(e.target.value)}
+                placeholder="word1 word2 word3 … word12"
+                className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none text-center font-mono text-xs resize-none mb-3"
+              />
+
+              {verifyResult && (
+                <div className={cn("p-3 rounded-xl text-xs font-semibold mb-4 text-center", verifyResult.success ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-200")}>
+                  {verifyResult.message}
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowVerifyModal(false)}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+                <button
+                  type="submit"
+                  disabled={verifying || !verifyInput.trim()}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 transition-colors cursor-pointer disabled:opacity-40"
+                >
+                  {verifying ? 'Testing...' : 'Test Phrase'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal for Rotating E2EE Keys (Password-Protected Authenticated Rotation) */}
+      {showRotateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="bg-amber-50 p-6 flex items-start gap-4 border-b border-amber-100">
+              <div className="p-3 bg-amber-100 rounded-full text-amber-600 flex-shrink-0">
+                <TriangleAlert className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-amber-900">Rotate Encryption Keys</h2>
+                <p className="text-xs text-amber-700 mt-1">
+                  Perform key rotation ONLY if you suspect key compromise.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <ul className="text-xs text-slate-600 space-y-1.5 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                <li>• Generates a brand new <strong>Primary Recovery Secret</strong></li> 
+                <li>• Re-encrypts all transactions under the new public key</li>
+                <li>• <strong>Invalidates access on all other logged-in browsers</strong></li>
+              </ul>
+
+              {rotateError && <p className="text-red-500 text-xs font-medium">{rotateError}</p>}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Current Account Password:
+                </label>
+                <input
+                  type="password"
+                  value={rotatePassword}
+                  onChange={(e) => setRotatePassword(e.target.value)}
+                  placeholder="Enter current password"
+                  className="w-full px-4 py-2 rounded-xl border border-slate-300 focus:ring-2 focus:ring-amber-500 outline-none text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Type <span className="font-mono font-bold text-amber-600">ROTATE</span> to confirm:
+                </label>
+                <input
+                  type="text"
+                  value={rotateConfirmText}
+                  onChange={(e) => setRotateConfirmText(e.target.value)}
+                  placeholder="Type ROTATE"
+                  className="w-full px-4 py-2 rounded-xl border border-slate-300 focus:ring-2 focus:ring-amber-500 outline-none font-mono text-sm"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRotateModal(false)}
+                  disabled={rotating}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRotateConfirm}
+                  disabled={rotating || !rotatePassword || rotateConfirmText.trim().toUpperCase() !== 'ROTATE'}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-amber-600 text-white text-sm font-bold hover:bg-amber-700 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {rotating ? 'Rotating...' : 'Confirm Rotation'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </AppLayout>
   )
 }

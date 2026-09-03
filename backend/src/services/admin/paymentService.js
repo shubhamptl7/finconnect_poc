@@ -1,6 +1,6 @@
 import db from '../../models/index.js';
 
-class AdminPaymentService {
+const adminPaymentService = {
   async getAllPayments() {
     return await db.Payment.findAll({
       include: [
@@ -9,7 +9,7 @@ class AdminPaymentService {
       ],
       order: [['created_at', 'DESC']],
     });
-  }
-}
+  },
+};
 
-export default new AdminPaymentService();
+export default adminPaymentService;

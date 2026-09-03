@@ -17,7 +17,6 @@ export const handleWebhook = async (request, reply) => {
 
     // 2. Process payload
     const payload = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
-    console.log('payload: ', payload);
     const result = await kycService.processWebhook(payload);
 
     if (!result.success && result.message.includes('not found')) {
