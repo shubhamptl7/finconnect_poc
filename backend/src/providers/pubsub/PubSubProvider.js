@@ -4,7 +4,7 @@ class PubSubProvider {
    * @param {string} channel
    * @param {string} message
    */
-  async publish(channel, message) {
+  async publish(_channel, _message) {
     throw new Error('Method "publish" must be implemented.');
   }
 
@@ -13,7 +13,7 @@ class PubSubProvider {
    * @param {string} channel
    * @param {Function} callback
    */
-  async subscribe(channel, callback) {
+  async subscribe(_channel, _callback) {
     throw new Error('Method "subscribe" must be implemented.');
   }
 
@@ -22,7 +22,7 @@ class PubSubProvider {
    * @param {string} channel
    * @param {Function} callback
    */
-  async unsubscribe(channel, callback) {
+  async unsubscribe(_channel, _callback) {
     throw new Error('Method "unsubscribe" must be implemented.');
   }
 }

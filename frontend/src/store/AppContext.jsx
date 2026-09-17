@@ -29,8 +29,12 @@ export function AppProvider({ children }) {
   const [bankConnections, setBankConnections] = useState([])
   const [bankAccounts, setBankAccounts] = useState([])
   const [transactions, setTransactions] = useState([])
+  const [transactionMeta, setTransactionMeta] = useState({ totalCount: 0, limit: 50, offset: 0, page: 1, totalPages: 1 })
   const [payments, setPayments] = useState([])
   const [beneficiaries, setBeneficiaries] = useState([])
+  const [activeLoanApplicationId, setActiveLoanApplicationId] = useState(
+    () => sessionStorage.getItem('activeLoanAppId') || null
+  )
 
   const addToast = useCallback((toast) => {
     const id = Date.now() + Math.random().toString(36).substring(2, 9)
@@ -110,41 +114,43 @@ export function AppProvider({ children }) {
       throw err;
     }
 
-    // E2EE Check
-    try {
-      if (!data.data.e2ee_public_key) {
-        // User has no E2EE key yet (very old legacy account before E2EE was added).
-        // Do NOT silently generate one — that would overwrite any existing key if the
-        // server response was incomplete. Instead, prompt the user to set up E2EE via
-        // the recovery/reset flow.
-        console.warn('User has no e2ee_public_key on server — prompting key setup.');
-        setNeedsKeyRecovery(true);
-      } else {
-        const privateKey = await loadPrivateKey();
-        const storedX = await getStoredPublicKeyX();
-        let serverX = null;
-        try {
-          const parsed = typeof data.data.e2ee_public_key === 'string' ? JSON.parse(data.data.e2ee_public_key) : data.data.e2ee_public_key;
-          serverX = parsed?.x;
-        } catch (e) { }
-
-        // BUG FIX: stale key detection must also fire when storedX is null but
-        // privateKey exists and server has a key (keys stored before x-tracking was added).
-        const isStaleByXMismatch = storedX && serverX && storedX !== serverX;
-        const isMissingFromBrowser = !privateKey;
-
-        if (isMissingFromBrowser || isStaleByXMismatch) {
-          if (isStaleByXMismatch) {
-            console.warn('Stale IndexedDB key detected (x mismatch). Clearing and requiring unlock.');
-            await clearPrivateKey();
-          } else {
-            console.warn('No private key in this browser. Requiring unlock.');
-          }
+    // E2EE Check (skip for admin accounts)
+    if (data.data.role !== 'admin') {
+      try {
+        if (!data.data.e2ee_public_key) {
+          // User has no E2EE key yet (very old legacy account before E2EE was added).
+          // Do NOT silently generate one — that would overwrite any existing key if the
+          // server response was incomplete. Instead, prompt the user to set up E2EE via
+          // the recovery/reset flow.
+          console.warn('User has no e2ee_public_key on server — prompting key setup.');
           setNeedsKeyRecovery(true);
+        } else {
+          const privateKey = await loadPrivateKey();
+          const storedX = await getStoredPublicKeyX();
+          let serverX = null;
+          try {
+            const parsed = typeof data.data.e2ee_public_key === 'string' ? JSON.parse(data.data.e2ee_public_key) : data.data.e2ee_public_key;
+            serverX = parsed?.x;
+          } catch (e) { }
+
+          // BUG FIX: stale key detection must also fire when storedX is null but
+          // privateKey exists and server has a key (keys stored before x-tracking was added).
+          const isStaleByXMismatch = storedX && serverX && storedX !== serverX;
+          const isMissingFromBrowser = !privateKey;
+
+          if (isMissingFromBrowser || isStaleByXMismatch) {
+            if (isStaleByXMismatch) {
+              console.warn('Stale IndexedDB key detected (x mismatch). Clearing and requiring unlock.');
+              await clearPrivateKey();
+            } else {
+              console.warn('No private key in this browser. Requiring unlock.');
+            }
+            setNeedsKeyRecovery(true);
+          }
         }
+      } catch (err) {
+        console.error('Failed to verify E2EE key state during login:', err);
       }
-    } catch (err) {
-      console.error('Failed to check private key on login', err);
     }
 
     setUser(data.data);
@@ -162,11 +168,13 @@ export function AppProvider({ children }) {
     setIsAuthenticated(false);
     setNeedsKeyRecovery(false);
     setPendingRecoveryCode(null);
-    setBankConnections([]); // Clear private data on logout
+    setBankConnections([]);
     setBankAccounts([]);
     setTransactions([]);
     setPayments([]);
     setBeneficiaries([]);
+    setActiveLoanApplicationId(null);
+    sessionStorage.removeItem('activeLoanAppId');
   }, [API_URL, authFetch]);
 
   // --- Bank Connection API Methods ---
@@ -195,9 +203,27 @@ export function AppProvider({ children }) {
     }
   }, [API_URL]);
 
-  const fetchTransactions = useCallback(async () => {
+  const disconnectBankConnection = useCallback(async (connectionId) => {
     try {
-      const response = await fetch(`${API_URL}/bank/transactions`, { credentials: 'include' });
+      const response = await fetch(`${API_URL}/bank/connections/${connectionId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (response.ok) {
+        setBankConnections(prev => prev.filter(c => c.id !== connectionId));
+        await fetchBankAccounts();
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('Failed to disconnect bank connection', err);
+      return false;
+    }
+  }, [API_URL, fetchBankAccounts]);
+
+  const fetchTransactions = useCallback(async (limit = 50, offset = 0) => {
+    try {
+      const response = await fetch(`${API_URL}/bank/transactions?limit=${limit}&offset=${offset}`, { credentials: 'include' });
       if (response.ok) {
         const data = await response.json();
         setIsDecryptingTransactions(true);
@@ -207,7 +233,11 @@ export function AppProvider({ children }) {
           return { ...t, description: desc, amount: amt };
         }));
         setTransactions(decrypted);
+        if (data.meta) {
+          setTransactionMeta(data.meta);
+        }
         setIsDecryptingTransactions(false);
+        return { transactions: decrypted, meta: data.meta };
       }
     } catch (err) {
       console.error('Failed to fetch transactions', err);
@@ -347,38 +377,40 @@ export function AppProvider({ children }) {
           setUser(data.data);
           setIsAuthenticated(true);
 
-          // E2EE Check on session load
-          try {
-            if (!data.data.e2ee_public_key) {
-              // Same as login: do NOT silently generate a new key. That would destroy
-              // any existing key if the server response was stale or incomplete.
-              console.warn('Session load: user has no e2ee_public_key — prompting key setup.');
-              setNeedsKeyRecovery(true);
-            } else {
-              const privateKey = await loadPrivateKey();
-              const storedX = await getStoredPublicKeyX();
-              let serverX = null;
-              try {
-                const parsed = typeof data.data.e2ee_public_key === 'string' ? JSON.parse(data.data.e2ee_public_key) : data.data.e2ee_public_key;
-                serverX = parsed?.x;
-              } catch (e) { }
-
-              // BUG FIX: also catch stale keys that were stored before x-tracking was added
-              const isStaleByXMismatch = storedX && serverX && storedX !== serverX;
-              const isMissingFromBrowser = !privateKey;
-
-              if (isMissingFromBrowser || isStaleByXMismatch) {
-                if (isStaleByXMismatch) {
-                  console.warn('Session load: stale IndexedDB key (x mismatch). Clearing and requiring unlock.');
-                  await clearPrivateKey();
-                } else {
-                  console.warn('Session load: no private key in this browser. Requiring unlock.');
-                }
+          // E2EE Check on session load (skip for admin accounts)
+          if (data.data.role !== 'admin') {
+            try {
+              if (!data.data.e2ee_public_key) {
+                // Same as login: do NOT silently generate a new key. That would destroy
+                // any existing key if the server response was stale or incomplete.
+                console.warn('Session load: user has no e2ee_public_key — prompting key setup.');
                 setNeedsKeyRecovery(true);
+              } else {
+                const privateKey = await loadPrivateKey();
+                const storedX = await getStoredPublicKeyX();
+                let serverX = null;
+                try {
+                  const parsed = typeof data.data.e2ee_public_key === 'string' ? JSON.parse(data.data.e2ee_public_key) : data.data.e2ee_public_key;
+                  serverX = parsed?.x;
+                } catch (e) { }
+
+                // BUG FIX: also catch stale keys that were stored before x-tracking was added
+                const isStaleByXMismatch = storedX && serverX && storedX !== serverX;
+                const isMissingFromBrowser = !privateKey;
+
+                if (isMissingFromBrowser || isStaleByXMismatch) {
+                  if (isStaleByXMismatch) {
+                    console.warn('Session load: stale IndexedDB key (x mismatch). Clearing and requiring unlock.');
+                    await clearPrivateKey();
+                  } else {
+                    console.warn('Session load: no private key in this browser. Requiring unlock.');
+                  }
+                  setNeedsKeyRecovery(true);
+                }
               }
+            } catch (err) {
+              console.error('Session E2EE check failed', err);
             }
-          } catch (err) {
-            console.error('Session E2EE check failed', err);
           }
         }
       } catch (err) {
@@ -606,15 +638,31 @@ export function AppProvider({ children }) {
   }, [user]);
 
   // Load bank data when authenticated
+  // NOTE: fetchTransactions is intentionally excluded here — it runs E2EE decryption
+  // on up to 50+ transactions (each needing 5 WebCrypto ops), which blocks React rendering
+  // for several seconds on every navigation. TransactionsPage loads its own data lazily.
   useEffect(() => {
     if (isAuthenticated) {
       fetchBankConnections();
       fetchBankAccounts();
-      fetchTransactions();
       fetchPayments();
       fetchBeneficiaries();
+      // Fetch active loan application ID once, lightweight (no big joins)
+      if (!activeLoanApplicationId) {
+        fetch(`${API_URL}/loans/applications`, { credentials: 'include' })
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            const ACTIVE_STATUSES = ['LOAN_CREATED', 'DISBURSED', 'ACTIVE', 'CLOSED', 'COMPLETED'];
+            const active = (data?.data || []).find(a => ACTIVE_STATUSES.includes(a.status));
+            if (active?.id) {
+              setActiveLoanApplicationId(active.id);
+              sessionStorage.setItem('activeLoanAppId', active.id);
+            }
+          })
+          .catch(() => {});
+      }
     }
-  }, [isAuthenticated, fetchBankConnections, fetchBankAccounts, fetchTransactions, fetchPayments, fetchBeneficiaries]);
+  }, [isAuthenticated, fetchBankConnections, fetchBankAccounts, fetchPayments, fetchBeneficiaries, API_URL, activeLoanApplicationId]);
 
   const removeToast = useCallback((id) => {
     setToasts(prev => prev.filter(t => t.id !== id))
@@ -637,11 +685,12 @@ export function AppProvider({ children }) {
       notifications, markNotificationRead, markAllRead, unreadCount,
       toasts, addToast, removeToast,
       sidebarCollapsed, setSidebarCollapsed,
-      bankConnections, bankAccounts, fetchBankConnections, fetchBankAccounts, API_URL,
-      transactions, fetchTransactions, syncTransactions,
+      bankConnections, bankAccounts, fetchBankConnections, fetchBankAccounts, disconnectBankConnection, API_URL,
+      transactions, transactionMeta, fetchTransactions, syncTransactions,
       payments, fetchPayments, initiatePayment, cancelPayment,
       beneficiaries, fetchBeneficiaries, createBeneficiary, updateBeneficiary, deleteBeneficiary,
       updateProfile, changePassword,
+      activeLoanApplicationId, setActiveLoanApplicationId,
     }}>
       {children}
     </AppContext.Provider>

@@ -59,9 +59,12 @@ export default [
           args: 'after-used',
           argsIgnorePattern: '^_',
           varsIgnorePattern: '^_',
+          caughtErrors: 'none',
         },
       ],
       'n/no-process-exit': 'warn',
+      'n/no-unsupported-features/es-syntax': 'off',
+      'preserve-caught-error': 'off',
     },
   },
 

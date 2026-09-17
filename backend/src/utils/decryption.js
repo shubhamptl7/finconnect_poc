@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+
 import config from '../config/env.js';
 
 const ALGORITHM = 'aes-256-gcm';
@@ -34,6 +35,6 @@ export const decrypt = (encryptedText) => {
   } catch (error) {
     // If decryption fails, log it and return the original text or null depending on strategy.
     // For now, if we are in transition, returning original text might leak, so it's better to fail securely.
-    throw new Error(`Decryption failed: ${error.message}`);
+    throw new Error(`Decryption failed: ${error.message}`, { cause: error });
   }
 };

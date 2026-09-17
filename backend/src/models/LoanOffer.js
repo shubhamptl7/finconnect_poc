@@ -53,7 +53,7 @@ const defineLoanOffer = (sequelize, DataTypes) => {
         allowNull: false,
       },
       status: {
-        type: DataTypes.ENUM('OFFERED', 'ACCEPTED', 'REJECTED', 'EXPIRED'),
+        type: DataTypes.ENUM('OFFERED', 'PROCESSING', 'ACCEPTED', 'REJECTED', 'EXPIRED'),
         defaultValue: 'OFFERED',
         allowNull: false,
       },

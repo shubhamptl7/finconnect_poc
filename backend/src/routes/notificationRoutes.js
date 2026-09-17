@@ -1,9 +1,8 @@
 import * as NotificationController from '../controllers/notificationController.js';
 import websocketService from '../services/websocketService.js';
-import notificationService from '../services/notificationService.js';
 import { authenticate } from '../middlewares/auth.js';
 
-export default async function notificationRoutes(fastify, options) {
+export default async function notificationRoutes(fastify, _options) {
   // REST endpoints (requires JWT authentication)
   fastify.get(
     '/',

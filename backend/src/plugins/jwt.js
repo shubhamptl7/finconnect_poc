@@ -3,7 +3,7 @@ import fastifyJwt from '@fastify/jwt';
 
 import config from '../config/env.js';
 
-async function jwtPlugin(fastify, options) {
+async function jwtPlugin(fastify, _options) {
   // SECURITY: Fail hard at startup if JWT_SECRET is not configured.
   // A missing secret would silently fall back to a publicly known key, enabling auth bypass.
   if (!config.jwt_secret) {
@@ -24,7 +24,7 @@ async function jwtPlugin(fastify, options) {
   fastify.decorate('authenticate', async function (request, reply) {
     try {
       await request.jwtVerify();
-    } catch (err) {
+    } catch (_err) {
       return reply
         .status(401)
         .send({ error: 'Unauthorized', message: 'Invalid or missing token.' });

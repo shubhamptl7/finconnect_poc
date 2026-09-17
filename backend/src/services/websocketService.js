@@ -1,4 +1,3 @@
-import jwt from '@fastify/jwt';
 import logger from '../config/logger.js';
 import pubSub from '../providers/pubsub/InMemoryPubSubProvider.js';
 
@@ -59,7 +58,7 @@ const websocketService = {
     socket.on('message', async (message) => {
       try {
         const payload = JSON.parse(message);
-        logger.info(`Received WS message from User ${socketUserId}:`, payload);
+        // logger.info(`Received WS message from User ${socketUserId}:`, payload);
       } catch (err) {
         logger.error(`Failed to parse incoming WS message: ${err.message}`);
       }

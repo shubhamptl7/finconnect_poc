@@ -1,8 +1,12 @@
 import crypto from 'crypto';
+
 import { importJWK, jwtVerify, decodeProtectedHeader } from 'jose';
+
 import logger from '../config/logger.js';
 import STATUS_CODES from '../config/constants.js';
 import webhookService from '../services/webhookService.js';
+import columnWebhookService from '../services/loan/columnWebhookService.js';
+import { loanWebhookService } from '../services/loan/loanWebhookService.js';
 import plaidClient from '../providers/plaid/plaidClient.js';
 
 // Size-bounded, TTL-aware cache for Plaid public verification keys.
@@ -109,6 +113,9 @@ export const handlePlaidWebhook = async (request, reply) => {
 
     // Delegate business logic and processing to the service layer
     await webhookService.processPlaidWebhook(payload);
+    
+    // Also delegate to the Loan Service layer (it has its own idempotency)
+    await loanWebhookService.processPlaidWebhook(payload);
 
     // Always respond with 200 OK so Plaid knows we successfully received and processed it
     return reply.code(STATUS_CODES.OK).send({ received: true });
@@ -122,5 +129,29 @@ export const handlePlaidWebhook = async (request, reply) => {
     return reply
       .code(STATUS_CODES.SERVER_ERROR)
       .send({ error: 'Internal processing error' });
+  }
+};
+
+/**
+ * Handles incoming webhooks from Column BaaS.
+ * Receives transfer.completed, transfer.settled, disbursement.completed events.
+ */
+export const handleColumnWebhook = async (request, reply) => {
+  try {
+    const signature = request.headers['column-signature'] || request.headers['x-column-signature'];
+    const body = request.body || {};
+    const rawBody = request.rawBody || JSON.stringify(body);
+
+    const isValid = columnWebhookService.verifySignature(signature, rawBody);
+    if (!isValid && process.env.NODE_ENV === 'production') {
+      logger.warn('[WebhookController] Invalid Column signature');
+      return reply.code(STATUS_CODES.UNAUTHORIZED).send({ error: 'Invalid Column signature' });
+    }
+
+    const result = await columnWebhookService.processEvent(body);
+    return reply.code(STATUS_CODES.OK).send({ received: true, ...result });
+  } catch (error) {
+    logger.error(`[WebhookController] Column Webhook error: ${error.message}`);
+    return reply.code(STATUS_CODES.SERVER_ERROR).send({ error: 'Internal processing error' });
   }
 };

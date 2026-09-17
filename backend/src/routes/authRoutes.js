@@ -13,7 +13,7 @@ export default async function authRoutes(fastify, _opts) {
   // Login route with strict rate limiting (5 per 15 minutes)
   fastify.post('/login', {
     ...loginSchema,
-    config: { rateLimit: { max: 5, timeWindow: 15 * 60 * 1000 } }
+    config: { rateLimit: { max: 15, timeWindow: '15 minutes' } }
   }, AuthController.login);
 
   // Logout route (requires authentication technically, but safe to expose)
@@ -28,7 +28,7 @@ export default async function authRoutes(fastify, _opts) {
         properties: { token: { type: 'string' } }
       }
     },
-    config: { rateLimit: { max: 500, timeWindow: 15 * 60 * 1000 } }
+    config: { rateLimit: { max: 5, timeWindow: '15 minutes' } }
   }, AuthController.verifyEmail);
 
   // Forgot password route
@@ -60,7 +60,7 @@ export default async function authRoutes(fastify, _opts) {
   }, AuthController.resetPassword);
 
   // Protected route example to fetch current user profile
-  fastify.get('/me', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/me', { preHandler: authenticate }, async (request, _reply) => {
     // request.user is populated by the authenticate decorator
     return { status: 'success', data: request.user };
   });

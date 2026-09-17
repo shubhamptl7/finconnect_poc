@@ -46,18 +46,17 @@ const defineLoanAutopayAuthorization = (sequelize, DataTypes) => {
       },
       currency: {
         type: DataTypes.STRING(3),
-        defaultValue: 'USD',
+        defaultValue: 'GBP',
         allowNull: false,
       },
       frequency: {
-        type: DataTypes.ENUM('MONTHLY'),
+        type: DataTypes.STRING,
         defaultValue: 'MONTHLY',
         allowNull: false,
       },
       schedule_interval: {
         type: DataTypes.STRING(50),
-        defaultValue: 'MONTHLY',
-        allowNull: false,
+        allowNull: true,
       },
       status: {
         type: DataTypes.ENUM(

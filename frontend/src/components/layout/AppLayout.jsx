@@ -4,20 +4,20 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard, ArrowLeftRight, Users, Settings,
   Bell, Search, Menu, X, Receipt, Building2,
-  HelpCircle, LogOut, BarChart3,
+  HelpCircle, LogOut, BarChart3, Calculator,
   ChevronLeft, Pin, Landmark, Wallet,
-  CheckCircle2, Shield, Info, CreditCard, User, Lock,
+  CheckCircle2, Shield, ShieldCheck,Info, CreditCard, User, Lock, Calendar,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/store/AppContext'
 import { Badge, SearchInput } from '@/components/ui'
 
 // ─── Logo ─────────────────────────────────────────────────
-function Logo({ collapsed }) {
+function Logo({ collapsed, isAdmin }) {
   return (
     <div className="flex items-center gap-3 px-1">
       {/* Premium Logo */}
-      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 via-brand-600 to-indigo-800 flex items-center justify-center flex-shrink-0 shadow-lg shadow-brand-500/30 ring-1 ring-white/20">
+      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 via-brand-600 to-emerald-900 flex items-center justify-center flex-shrink-0 shadow-lg shadow-brand-500/30 ring-1 ring-white/20">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 2L2 7l10 5 10-5-10-5z" />
           <path d="M2 17l10 5 10-5" />
@@ -33,9 +33,11 @@ function Logo({ collapsed }) {
             className="overflow-hidden"
           >
             <span className="font-bold text-slate-900 text-[15px] whitespace-nowrap tracking-[-0.01em]" style={{ fontFamily: 'Geist, IBM Plex Sans, system-ui' }}>
-              Pay<span className="text-brand-600">Oman</span>
+              Fin<span className="text-brand-600">Connect</span>
             </span>
-            <p className="text-[9px] text-slate-400 font-semibold uppercase tracking-widest -mt-0.5 whitespace-nowrap">Open Banking</p>
+            <p className="text-[9px] text-brand-700 font-extrabold uppercase tracking-widest -mt-0.5 whitespace-nowrap">
+              {isAdmin ? 'Admin Console' : 'Open Banking'}
+            </p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -44,24 +46,35 @@ function Logo({ collapsed }) {
 }
 
 // ─── Nav Items ─────────────────────────────────────────────
-const navItems = [
+const baseUserNavItems = [
   { to: '/app/dashboard',     icon: <LayoutDashboard size={17} />, label: 'Dashboard' },
   { to: '/app/banks',         icon: <Building2 size={17} />,       label: 'Connected Banks' },
   { to: '/app/accounts',      icon: <Landmark size={17} />,        label: 'Accounts' },
+  { to: '/app/loans',         icon: <CreditCard size={17} />,      label: 'Loans' },
+  { to: '/app/emi',           icon: <Calendar size={17} />,        label: 'Manage EMI', isEmi: true },
   { to: '/app/beneficiaries', icon: <Users size={17} />,           label: 'Beneficiaries' },
   { to: '/app/payments',      icon: <ArrowLeftRight size={17} />,  label: 'Payments' },
   { to: '/app/transactions',  icon: <Receipt size={17} />,         label: 'Transaction History' },
+  { to: '/app/calculators/emi', icon: <Calculator size={17} />, label: 'Calculators' },
+]
+
+const adminNavItems = [
+  { to: '/admin/dashboard', icon: <LayoutDashboard size={17} />, label: 'Dashboard' },
+  { to: '/admin/loans',     icon: <ShieldCheck size={17} />,     label: 'Loan Applications' },
+  { to: '/admin/customers', icon: <Users size={17} />,        label: 'Customer Management' },
+  { to: '/admin/payments',  icon: <CreditCard size={17} />,   label: 'Payment Monitoring' },
+  { to: '/admin/audits',    icon: <ShieldCheck size={17} />,  label: 'Audit Logs' },
 ]
 
 const bottomNavItems = [
   { to: '/app/notifications', icon: <Bell size={17} />,        label: 'Notifications' },
-  { to: '/app/settings',      icon: <Settings size={17} />,    label: 'Settings' },
-  { to: '/app/help',          icon: <HelpCircle size={17} />,  label: 'Help & Support' },
+  // { to: '/app/settings',      icon: <Settings size={17} />,    label: 'Settings' },
+  // { to: '/app/help',          icon: <HelpCircle size={17} />,  label: 'Help & Support' },
 ]
 
 function SidebarNavItem({ to, icon, label, collapsed, badge }) {
   const location = useLocation()
-  const isActive = location.pathname === to || location.pathname.startsWith(to + '/')
+  const isActive = location.pathname === to || location.pathname.startsWith(to + '/') || (to.includes('calculators') && location.pathname.includes('calculators'))
 
   return (
     <NavLink
@@ -112,10 +125,20 @@ function SidebarNavItem({ to, icon, label, collapsed, badge }) {
 
 // ─── Sidebar ───────────────────────────────────────────────
 export function Sidebar({ collapsed, onToggle }) {
-  const { user, logout, unreadCount } = useApp()
+  const { user, logout, unreadCount, activeLoanApplicationId } = useApp()
   const navigate = useNavigate()
   const [isHovered, setIsHovered] = useState(false)
   const leaveTimer = useRef(null)
+
+  const isAdmin = user?.role === 'admin'
+  // For the EMI link: if we know the active loan application ID, link directly
+  // to /app/emi/:id to skip the getApplications() lookup on the page
+  const userNavItems = baseUserNavItems.map(item =>
+    item.isEmi && activeLoanApplicationId
+      ? { ...item, to: `/app/emi/${activeLoanApplicationId}` }
+      : item
+  )
+  const activeNavItems = isAdmin ? adminNavItems : userNavItems
 
   const visuallyCollapsed = collapsed && !isHovered
   const isPeeking = collapsed && isHovered
@@ -140,7 +163,7 @@ export function Sidebar({ collapsed, onToggle }) {
       onMouseLeave={handleMouseLeave}
       animate={{ width: visuallyCollapsed ? 68 : 240 }}
       transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
-      className="flex-shrink-0 h-screen border-r border-slate-100 flex flex-col overflow-hidden z-20 relative bg-white"
+      className="flex-shrink-0 h-screen border-r border-slate-200/80 flex flex-col overflow-hidden z-20 relative bg-slate-50"
     >
       {/* Peek shadow */}
       {isPeeking && (
@@ -149,7 +172,7 @@ export function Sidebar({ collapsed, onToggle }) {
 
       {/* Header */}
       <div className="h-16 flex items-center justify-between px-4 border-b border-slate-100 flex-shrink-0">
-        <Logo collapsed={visuallyCollapsed} />
+        <Logo collapsed={visuallyCollapsed} isAdmin={isAdmin} />
         <button
           onClick={onToggle}
           className={cn(
@@ -170,7 +193,7 @@ export function Sidebar({ collapsed, onToggle }) {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 flex flex-col gap-0.5 overflow-y-auto overflow-x-hidden" role="navigation" aria-label="Main navigation">
-        {navItems.map(item => (
+        {activeNavItems.map(item => (
           <SidebarNavItem
             key={item.to}
             collapsed={visuallyCollapsed}
@@ -199,7 +222,7 @@ export function Sidebar({ collapsed, onToggle }) {
           visuallyCollapsed && 'justify-center px-2'
         )}>
           {/* Avatar */}
-          <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center flex-shrink-0 shadow-[0_0_0_2px_rgba(27,85,226,0.15)]">
+          <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center flex-shrink-0 shadow-[0_0_0_2px_rgba(15,118,110,0.15)]">
             <span className="text-white text-xs font-bold">{user.initials}</span>
           </div>
           <AnimatePresence>
@@ -325,7 +348,7 @@ export function TopBar({ title, subtitle }) {
   }
 
   return (
-    <header className="h-16 bg-white border-b border-slate-100 flex items-center justify-between pl-16 lg:pl-6 pr-6 flex-shrink-0 sticky top-0 z-10">
+    <header className="h-16 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between pl-16 lg:pl-6 pr-6 flex-shrink-0 sticky top-0 z-40">
       <div>
         <h1 className="text-[17px] font-bold text-slate-900 leading-tight" style={{ fontFamily: 'Geist, IBM Plex Sans, system-ui', letterSpacing: '-0.01em' }}>
           {title}
@@ -386,7 +409,7 @@ export function TopBar({ title, subtitle }) {
         >
           <button
             onClick={() => navigate('/app/profile')}
-            className="w-9 h-9 rounded-full bg-brand-600 flex items-center justify-center shadow-[0_0_0_2px_rgba(27,85,226,0.15)] cursor-pointer overflow-hidden transition-transform hover:scale-105"
+            className="w-9 h-9 rounded-full bg-brand-600 flex items-center justify-center shadow-[0_0_0_2px_rgba(15,118,110,0.15)] cursor-pointer overflow-hidden transition-transform hover:scale-105"
             aria-label="User profile"
           >
             <span className="text-white text-xs font-bold">{user?.initials || 'U'}</span>
@@ -434,14 +457,25 @@ export function TopBar({ title, subtitle }) {
 
 // ─── Mobile Bottom Nav ─────────────────────────────────────
 function MobileNav() {
+  const { user } = useApp()
   const location = useLocation()
-  const mobileItems = [
+  const isAdmin = user?.role === 'admin'
+
+  const userMobileItems = [
     { to: '/app/dashboard', icon: <LayoutDashboard size={20} />, label: 'Home' },
     { to: '/app/accounts', icon: <Landmark size={20} />, label: 'Accounts' },
     { to: '/app/payments', icon: <ArrowLeftRight size={20} />, label: 'Pay' },
     { to: '/app/banks', icon: <Building2 size={20} />, label: 'Banks' },
     { to: '/app/settings', icon: <Settings size={20} />, label: 'Settings' },
   ]
+
+  const adminMobileItems = [
+    { to: '/admin/customers', icon: <Users size={20} />, label: 'Customers' },
+    { to: '/admin/payments', icon: <CreditCard size={20} />, label: 'Payments' },
+    { to: '/admin/audits', icon: <ShieldCheck size={20} />, label: 'Audits' },
+  ]
+
+  const mobileItems = isAdmin ? adminMobileItems : userMobileItems
   return (
     <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-100 flex items-center justify-around px-2 py-2 safe-area-inset-bottom" style={{ boxShadow: '0 -4px 16px rgba(11,18,32,0.06)' }}>
       {mobileItems.map(item => {
@@ -470,7 +504,7 @@ export function AppLayout({ children, title, subtitle }) {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   return (
-    <div className="flex h-screen overflow-hidden bg-surface-1">
+    <div className="flex h-screen overflow-hidden bg-[#F5F7F8]">
       {/* Mobile overlay */}
       <AnimatePresence>
         {mobileOpen && (
@@ -553,3 +587,6 @@ export function AppLayout({ children, title, subtitle }) {
     </div>
   )
 }
+
+export { BreadcrumbBar } from './BreadcrumbBar'
+

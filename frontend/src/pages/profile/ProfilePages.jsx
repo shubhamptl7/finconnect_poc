@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { User, Mail, Phone, Calendar, Shield, Lock, Key, AlertTriangle, ChevronRight, Activity, Camera, ArrowLeft, CheckCircle2, LogOut, RefreshCw, TriangleAlert, ShieldCheck, Eye, Copy, Check } from 'lucide-react'
 import { useApp } from '@/store/AppContext'
 import { Card, Button, Input, Badge } from '@/components/ui'
-import { AppLayout } from '@/components/layout/AppLayout'
+import { AppLayout, BreadcrumbBar } from '@/components/layout/AppLayout'
 import { cn, formatRelative } from '@/lib/utils'
 
 export function MyProfile() {
@@ -65,7 +65,18 @@ export function MyProfile() {
 
   return (
     <AppLayout title="My Profile" subtitle="Manage your personal information and account settings">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="space-y-6 max-w-6xl mx-auto">
+        {/* Navigation Breadcrumb Bar */}
+        <BreadcrumbBar
+          items={[
+            { label: 'Overview', to: '/app/dashboard' },
+            { label: 'My Profile' }
+          ]}
+          backTo="/app/dashboard"
+          backLabel="Overview"
+        />
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
         {/* Left Column: Main Profile Info */}
         <div className="lg:col-span-2 space-y-6">
@@ -134,16 +145,16 @@ export function MyProfile() {
 
               <button
                 onClick={() => { setShowVerifyModal(true); setVerifyInput(''); setVerifyResult(null); }}
-                className="w-full flex items-center justify-between p-3.5 rounded-xl border border-indigo-100 hover:border-indigo-200 hover:bg-indigo-50 hover:shadow-sm transition-all text-left cursor-pointer group"
+                className="w-full flex items-center justify-between p-3.5 rounded-xl border border-emerald-100 hover:border-emerald-200 hover:bg-emerald-50 hover:shadow-sm transition-all text-left cursor-pointer group"
               >
                 <div className="flex items-center gap-3">
-                  <ShieldCheck size={16} className="text-indigo-500 transition-colors" />
+                  <ShieldCheck size={16} className="text-emerald-600 transition-colors" />
                   <div>
-                    <span className="text-sm font-semibold text-indigo-900 block leading-none">Verify Recovery Secret / Code</span>
-                    <span className="text-[11px] text-indigo-600 mt-1 block">Test Primary Secret or Emergency Code</span>
+                    <span className="text-sm font-semibold text-emerald-950 block leading-none">Verify Recovery Secret / Code</span>
+                    <span className="text-[11px] text-emerald-700 mt-1 block">Test Primary Secret or Emergency Code</span>
                   </div>
                 </div>
-                <ChevronRight size={16} className="text-indigo-300 group-hover:text-indigo-500 transition-colors" />
+                <ChevronRight size={16} className="text-emerald-300 group-hover:text-emerald-500 transition-colors" />
               </button>
 
               <button
@@ -185,6 +196,7 @@ export function MyProfile() {
         </div>
 
       </div>
+      </div>
 
 
 
@@ -192,13 +204,13 @@ export function MyProfile() {
       {showVerifyModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-            <div className="bg-indigo-50 p-6 flex items-start gap-4 border-b border-indigo-100">
-              <div className="p-3 bg-indigo-100 rounded-full text-indigo-600 flex-shrink-0">
+            <div className="bg-emerald-50 p-6 flex items-start gap-4 border-b border-emerald-100">
+              <div className="p-3 bg-emerald-100 rounded-full text-emerald-700 flex-shrink-0">
                 <ShieldCheck className="h-6 w-6" />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-indigo-900">Verify Recovery Phrase</h2>
-                <p className="text-xs text-indigo-700 mt-1">
+                <h2 className="text-lg font-bold text-emerald-950">Verify Recovery Phrase</h2>
+                <p className="text-xs text-emerald-700 mt-1">
                   Enter your 12-word phrase to test if it matches your active account key.
                 </p>
               </div>
@@ -211,7 +223,7 @@ export function MyProfile() {
                 value={verifyInput}
                 onChange={(e) => setVerifyInput(e.target.value)}
                 placeholder="word1 word2 word3 … word12"
-                className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none text-center font-mono text-xs resize-none mb-3"
+                className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none text-center font-mono text-xs resize-none mb-3"
               />
 
               {verifyResult && (
@@ -231,7 +243,7 @@ export function MyProfile() {
                 <button
                   type="submit"
                   disabled={verifying || !verifyInput.trim()}
-                  className="flex-1 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 transition-colors cursor-pointer disabled:opacity-40"
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 transition-colors cursor-pointer disabled:opacity-40"
                 >
                   {verifying ? 'Testing...' : 'Test Phrase'}
                 </button>
@@ -400,7 +412,18 @@ export function UpdateProfile() {
 
   return (
     <AppLayout title="Update Profile" subtitle="Make changes to your personal information">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="space-y-6 max-w-6xl mx-auto">
+        {/* Navigation Breadcrumb Bar */}
+        <BreadcrumbBar
+          items={[
+            { label: 'My Profile', to: '/app/profile' },
+            { label: 'Update Profile' }
+          ]}
+          backTo="/app/profile"
+          backLabel="Profile"
+        />
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
         <div className="lg:col-span-1">
           <Button variant="ghost" size="sm" className="mb-6 -ml-3" onClick={() => navigate('/app/profile')} icon={<ArrowLeft size={16} />}>
@@ -483,6 +506,7 @@ export function UpdateProfile() {
           </Card>
         </div>
       </div>
+      </div>
     </AppLayout>
   )
 }
@@ -559,7 +583,18 @@ export function ChangePassword() {
 
   return (
     <AppLayout title="Change Password" subtitle="Update your security credentials">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="space-y-6 max-w-6xl mx-auto">
+        {/* Navigation Breadcrumb Bar */}
+        <BreadcrumbBar
+          items={[
+            { label: 'My Profile', to: '/app/profile' },
+            { label: 'Change Password' }
+          ]}
+          backTo="/app/profile"
+          backLabel="Profile"
+        />
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
         <div className="lg:col-span-1">
           <Button variant="ghost" size="sm" className="mb-6 -ml-3" onClick={() => navigate('/app/profile')} icon={<ArrowLeft size={16} />}>
@@ -638,6 +673,7 @@ export function ChangePassword() {
             </form>
           </Card>
         </div>
+      </div>
       </div>
     </AppLayout>
   )

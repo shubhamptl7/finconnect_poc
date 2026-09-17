@@ -12,19 +12,19 @@ export default {
         mono: ['IBM Plex Mono', 'Fira Code', 'monospace'],
       },
       colors: {
-        // Brand — refined blue, distinctive from Tailwind defaults
+        // Brand — Emerald/Teal green design system used in Loan Module
         brand: {
-          50:  '#EEF4FF',
-          100: '#DCE9FF',
-          200: '#BACED8',
-          300: '#93B4FF',
-          400: '#6090FF',
-          500: '#3B74F5',
-          600: '#1B55E2',  // Primary action — deliberate, not generic blue-700
-          700: '#1448CC',  // Hover
-          800: '#0F38A8',
-          900: '#0B2878',
-          950: '#071650',
+          50:  '#F0F9F7',
+          100: '#DCEFEB',
+          200: '#A7F3D0',
+          300: '#6EE7B7',
+          400: '#34D399',
+          500: '#10B981',
+          600: '#0F766E',  // Primary action — rich emerald/teal
+          700: '#0B625C',  // Hover
+          800: '#065F46',
+          900: '#064E3B',
+          950: '#022C22',
         },
         // Slate — page/surface/text (standard Tailwind slate kept)
         // Midnight — premium card dark background
@@ -82,9 +82,9 @@ export default {
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
-        'gradient-mesh':   'linear-gradient(135deg, #0B1220 0%, #1B55E2 50%, #0B1220 100%)',
+        'gradient-mesh':   'linear-gradient(135deg, #0B1220 0%, #0F766E 50%, #0B1220 100%)',
         // Subtle arc motif — used in landing + auth only
-        'arc-pattern':     'radial-gradient(ellipse at 20% 50%, rgba(27,85,226,0.06) 0%, transparent 60%), radial-gradient(ellipse at 80% 20%, rgba(59,130,246,0.04) 0%, transparent 50%)',
+        'arc-pattern':     'radial-gradient(ellipse at 20% 50%, rgba(15,118,110,0.08) 0%, transparent 60%), radial-gradient(ellipse at 80% 20%, rgba(16,185,129,0.06) 0%, transparent 50%)',
       },
       boxShadow: {
         // Elevation system — clean, not glowy
@@ -93,21 +93,21 @@ export default {
         'e2': '0 1px 3px rgba(11,18,32,0.06), 0 4px 16px rgba(11,18,32,0.04)',
         'e3': '0 4px 8px rgba(11,18,32,0.06), 0 12px 32px rgba(11,18,32,0.08)',
         'e4': '0 8px 24px rgba(11,18,32,0.10), 0 24px 64px rgba(11,18,32,0.12)',
-        // Focus ring — brand color
-        'focus-brand': '0 0 0 3px rgba(27,85,226,0.18)',
-        'focus-ring':  '0 0 0 2px #ffffff, 0 0 0 4px rgba(27,85,226,0.35)',
-        // Glow — used sparingly
-        'glow-brand':  '0 0 20px rgba(27,85,226,0.22)',
-        'glow-success':'0 0 20px rgba(12,153,86,0.20)',
+        // Focus ring — brand emerald/teal color
+        'focus-brand': '0 0 0 3px rgba(15,118,110,0.18)',
+        'focus-ring':  '0 0 0 2px #ffffff, 0 0 0 4px rgba(15,118,110,0.35)',
+        // Glow — emerald/teal green
+        'glow-brand':  '0 0 20px rgba(15,118,110,0.22)',
+        'glow-success':'0 0 20px rgba(16,185,129,0.20)',
         // Legacy aliases (preserve backward compat)
         'card':        '0 1px 3px rgba(11,18,32,0.06), 0 4px 16px rgba(11,18,32,0.04)',
         'card-hover':  '0 4px 8px rgba(11,18,32,0.06), 0 12px 32px rgba(11,18,32,0.08)',
-        'glow-blue':   '0 0 20px rgba(27,85,226,0.22)',
-        'glow-green':  '0 0 20px rgba(12,153,86,0.20)',
+        'glow-blue':   '0 0 20px rgba(15,118,110,0.22)',
+        'glow-green':  '0 0 20px rgba(16,185,129,0.20)',
         'depth-sm':    '0 1px 2px rgba(11,18,32,0.05)',
         'depth-md':    '0 4px 8px rgba(11,18,32,0.06), 0 12px 32px rgba(11,18,32,0.08)',
         'depth-lg':    '0 8px 24px rgba(11,18,32,0.10), 0 24px 64px rgba(11,18,32,0.12)',
-        'premium':     '0 20px 60px rgba(11,18,32,0.4), 0 4px 16px rgba(27,85,226,0.25), inset 0 1px 0 rgba(255,255,255,0.08)',
+        'premium':     '0 20px 60px rgba(11,18,32,0.4), 0 4px 16px rgba(15,118,110,0.25), inset 0 1px 0 rgba(255,255,255,0.08)',
         'inner-light': 'inset 0 1px 0 rgba(255,255,255,0.10)',
       },
       borderRadius: {

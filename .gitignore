@@ -4,6 +4,7 @@ dist/
 build/
 out/
 .next/
+docs/
 
 # Environment variables
 .env

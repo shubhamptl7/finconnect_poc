@@ -1,10 +1,10 @@
-# PayOman – Backend Project Context
+# FinConnect – Backend Project Context
 
 ## AI Development Context (Version 1.0)
 
 ## Project Overview
 
-PayOman is an **Open Banking financial platform** designed for the Sultanate of Oman.
+FinConnect is an **Open Banking financial platform** designed for the Sultanate of Oman.
 
 It is **not a digital bank**, **not a wallet**, and **not a payment gateway**.
 
@@ -63,7 +63,7 @@ Banks continue to:
 - Execute financial transactions
 - Maintain account records
 
-PayOman provides:
+FinConnect provides:
 
 - Financial aggregation
 - Unified dashboard

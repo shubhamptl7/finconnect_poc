@@ -10,6 +10,12 @@ module.exports = {
     dialect: process.env.DEV_DB_DIALECT,
     logging: false,
     timezone: '+00:00',
+    pool: {
+      max: 20,
+      min: 2,
+      acquire: 30000,
+      idle: 10000,
+    },
   },
   production: {
     username: process.env.PROD_DB_USER,
@@ -20,5 +26,11 @@ module.exports = {
     dialect: process.env.PROD_DB_DIALECT,
     logging: false,
     timezone: '+00:00',
+    pool: {
+      max: 20,
+      min: 2,
+      acquire: 30000,
+      idle: 10000,
+    },
   },
 };

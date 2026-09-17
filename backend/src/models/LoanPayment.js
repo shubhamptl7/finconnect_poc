@@ -52,7 +52,7 @@ const defineLoanPayment = (sequelize, DataTypes) => {
       },
       currency: {
         type: DataTypes.STRING(3),
-        defaultValue: 'USD',
+        defaultValue: 'GBP',
         allowNull: false,
       },
       status: {

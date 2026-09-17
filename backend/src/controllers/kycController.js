@@ -3,7 +3,18 @@ import { verifyPersonaSignature } from '../utils/persona.js';
 import { successResponse } from '../utils/response.js';
 import STATUS_CODES from '../config/constants.js';
 import AppError from '../utils/appError.js';
-import db from '../models/index.js';
+import config from '../config/env.js';
+
+export const getKycConfig = async (request, reply) => {
+  return successResponse({
+    reply,
+    statusCode: STATUS_CODES.OK,
+    data: {
+      templateId: config.persona_template_id || 'itmpl_AoVizgpBK4mgFaiH7dRjQykpb2BfoV',
+      environment: config.env === 'production' ? 'prod' : 'sandbox',
+    },
+  });
+};
 
 export const handleWebhook = async (request, reply) => {
   try {

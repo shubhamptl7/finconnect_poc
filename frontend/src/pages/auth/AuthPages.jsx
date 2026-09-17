@@ -1,169 +1,84 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate, Navigate, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Mail, Lock, Eye, EyeOff, User, Phone, ArrowRight, ShieldCheck, CheckCircle2 } from 'lucide-react'
+import { Mail, Lock, Eye, EyeOff, User, Phone, ArrowRight, ShieldCheck, CheckCircle2, Building2, Landmark, Check } from 'lucide-react'
 import { useApp } from '@/store/AppContext'
 import { Input, Button, Divider } from '@/components/ui'
-import { cn, sleep } from '@/lib/utils'
-
-// Auth Brand Panel
-// Uses our signature connection-arc motif — restrained, not generic
-function AuthBrandPanel() {
-  const features = [
-    'Connect all your Omani bank accounts',
-    'Bank-grade 256-bit encryption',
-    'Real-time transaction monitoring',
-    'Initiate payments through your banks',
-  ]
-
-  const connectedBanks = [
-    { code: 'BM', name: 'Bank Muscat', color: '#1e3a8a' },
-    { code: 'NBO', name: 'National Bank of Oman', color: '#065f46' },
-    { code: 'AB', name: 'Ahli Bank', color: '#7c3aed' },
-    { code: 'OAB', name: 'Oman Arab Bank', color: '#d97706' },
-  ]
-
-  return (
-    <div
-      className="relative h-full flex flex-col justify-between p-10 overflow-hidden"
-      style={{ background: 'linear-gradient(160deg, #0B1220 0%, #111B2E 45%, #1B2E50 100%)' }}
-    >
-      {/* Connection arc — the signature motif */}
-      <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="xMidYMid slice">
-        <defs>
-          <linearGradient id="arcGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#1B55E2" stopOpacity="0.3" />
-            <stop offset="100%" stopColor="#1B55E2" stopOpacity="0.05" />
-          </linearGradient>
-        </defs>
-        {/* Outer rings */}
-        <circle cx="420" cy="120" r="160" stroke="url(#arcGrad)" strokeWidth="0.8" fill="none" />
-        <circle cx="420" cy="120" r="110" stroke="url(#arcGrad)" strokeWidth="0.5" fill="none" />
-        {/* Connection nodes */}
-        <circle cx="300" cy="340" r="80" stroke="url(#arcGrad)" strokeWidth="0.6" fill="none" />
-        {/* Arc lines representing bank connections */}
-        <line x1="420" y1="120" x2="300" y2="340" stroke="#1B55E2" strokeWidth="0.5" strokeDasharray="6 4" strokeOpacity="0.2" />
-        <line x1="420" y1="120" x2="150" y2="260" stroke="#1B55E2" strokeWidth="0.5" strokeDasharray="6 4" strokeOpacity="0.15" />
-        <line x1="420" y1="120" x2="380" y2="420" stroke="#1B55E2" strokeWidth="0.5" strokeDasharray="6 4" strokeOpacity="0.12" />
-        {/* Nodes */}
-        <circle cx="420" cy="120" r="3" fill="#1B55E2" fillOpacity="0.3" />
-        <circle cx="300" cy="340" r="2.5" fill="#1B55E2" fillOpacity="0.2" />
-        <circle cx="150" cy="260" r="2" fill="#1B55E2" fillOpacity="0.2" />
-        <circle cx="380" cy="420" r="2" fill="#1B55E2" fillOpacity="0.2" />
-      </svg>
-
-      {/* Logo */}
-      <div className="relative z-10">
-        <div className="flex items-center gap-3 mb-10">
-          <div className="w-9 h-9 rounded-xl bg-brand-600 flex items-center justify-center" style={{ boxShadow: '0 2px 12px rgba(27,85,226,0.35)' }}>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M3 2h5a3 3 0 0 1 0 6H3V2Z" fill="white" fillOpacity="0.9" />
-              <path d="M3 8v4" stroke="white" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </div>
-          <div>
-            <span className="text-white font-bold text-base tracking-[-0.01em]" style={{ fontFamily: 'Geist, IBM Plex Sans, system-ui' }}>
-              Pay<span style={{ color: '#93B4FF' }}>Oman</span>
-            </span>
-            <div className="text-blue-300/50 text-[9px] font-semibold uppercase tracking-[0.18em] mt-0.5">Open Banking Platform</div>
-          </div>
-        </div>
-
-        <h2 className="font-bold text-white mb-3 leading-tight" style={{ fontFamily: 'Geist, IBM Plex Sans, system-ui', fontSize: '28px', letterSpacing: '-0.02em' }}>
-          Your money,<br />
-          <span style={{ color: '#93B4FF' }}>unified.</span>
-        </h2>
-        <p className="text-blue-100/60 text-sm leading-relaxed max-w-xs">
-          Connect your existing Omani bank accounts. Monitor, initiate payments, and manage your finances with full transparency and consent.
-        </p>
-      </div>
-
-      {/* Connected banks preview */}
-      <div className="relative z-10 my-6">
-        <p className="text-blue-200/40 text-[10px] font-semibold uppercase tracking-[0.18em] mb-3">7 Omani Banks Supported</p>
-        <div className="flex flex-col gap-2">
-          {connectedBanks.map(bank => (
-            <div key={bank.code}
-              className="flex items-center gap-3 px-4 py-3 rounded-xl"
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
-            >
-              <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0"
-                style={{ background: bank.color }}>
-                {bank.code.slice(0, 2)}
-              </div>
-              <span className="text-blue-100/70 text-sm">{bank.name}</span>
-              <div className="ml-auto flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                <span className="text-emerald-400/80 text-[10px] font-medium">Connected</span>
-              </div>
-            </div>
-          ))}
-          <div className="text-center py-1">
-            <span className="text-blue-200/30 text-[11px]">+ 3 more banks available</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Features */}
-      <div className="relative z-10 space-y-2">
-        {features.map((f, i) => (
-          <div key={i} className="flex items-center gap-2.5">
-            <CheckCircle2 size={13} className="text-emerald-400/80 flex-shrink-0" />
-            <span className="text-blue-100/60 text-sm">{f}</span>
-          </div>
-        ))}
-        <div className="pt-4 flex items-center gap-2">
-          <ShieldCheck size={12} className="text-emerald-500/60" />
-          <p className="text-blue-200/30 text-[11px]">Built on CBO Open Banking Standards</p>
-        </div>
-      </div>
-    </div>
-  )
-}
+import { cn } from '@/lib/utils'
 
 // Auth Shell
 export function AuthShell({ children }) {
   return (
-    <div className="min-h-screen grid lg:grid-cols-[480px_1fr] bg-white">
-      <div className="hidden lg:block">
-        <AuthBrandPanel />
-      </div>
-      <div className="flex flex-col min-h-screen">
-        {/* Mobile header */}
-        <div className="lg:hidden flex items-center justify-between p-6 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-gradient-to-br from-brand-700 to-brand-500 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">P</span>
+    <div className="min-h-screen grid lg:grid-cols-12 bg-[#F4F7FB] font-sans">
+      {/* Left Branding Panel (5 cols) */}
+      <div className="hidden lg:flex lg:col-span-5 bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950 p-10 flex-col justify-between relative overflow-hidden text-white border-r border-slate-800">
+        {/* Subtle Ambient Arc Accent */}
+        <div className="absolute -top-32 -right-32 w-96 h-96 bg-brand-600/20 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative z-10 space-y-8">
+          <Link to="/" className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-brand-600 flex items-center justify-center text-white shadow-md shadow-brand-600/30">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                <path d="M2 17l10 5 10-5" />
+                <path d="M2 12l10 5 10-5" />
+              </svg>
             </div>
-            <span className="font-bold text-slate-900">Pay<span className="text-brand-600">Oman</span></span>
+            <div>
+              <span className="font-extrabold text-white text-lg tracking-tight" style={{ fontFamily: 'Geist, IBM Plex Sans, system-ui' }}>
+                Fin<span className="text-brand-400">Connect</span>
+              </span>
+              <p className="text-[9px] text-brand-300 font-extrabold uppercase tracking-widest -mt-0.5">Open Banking Platform</p>
+            </div>
+          </Link>
+
+          <div className="space-y-3 pt-6">
+            <span className="px-3 py-1 rounded-full bg-brand-500/20 text-brand-300 text-[10px] font-bold uppercase tracking-wider border border-brand-400/20">
+              Open Banking Regulated Framework
+            </span>
+            <h2 className="text-3xl font-extrabold leading-tight tracking-tight text-white" style={{ fontFamily: 'Geist, IBM Plex Sans, system-ui' }}>
+              Your financial life,<br />
+              <span className="text-brand-400">securely connected.</span>
+            </h2>
+            <p className="text-xs text-slate-300 leading-relaxed max-w-sm">
+              Link your bank accounts, monitor transactions, and initiate transfers with full consent and 256-bit encryption.
+            </p>
+          </div>
+
+          <div className="space-y-3 pt-4">
+            {[
+              'Barclays, HSBC, Lloyds & Monzo connectivity',
+              'Regulated Open Banking security standards',
+              'End-to-End E2EE transaction protection',
+              'Zero bank login credential storage'
+            ].map((item, idx) => (
+              <div key={idx} className="flex items-center gap-2.5 text-xs text-slate-200">
+                <div className="w-4 h-4 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 flex-shrink-0">
+                  <Check size={10} strokeWidth={3} />
+                </div>
+                <span>{item}</span>
+              </div>
+            ))}
           </div>
         </div>
-        {/* Top accent */}
-        <div className="h-0.5 bg-gradient-to-r from-brand-800 via-brand-500 to-blue-400 hidden lg:block" />
-        <div className="flex-1 flex items-center justify-center p-8">
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="w-full max-w-sm"
-          >
-            {children}
-          </motion.div>
+
+        <div className="relative z-10 pt-8 border-t border-slate-800 flex items-center gap-3 text-[11px] text-slate-400">
+          <ShieldCheck size={16} className="text-emerald-400 flex-shrink-0" />
+          <span>UK Open Banking Security Compliant</span>
         </div>
-        <footer className="p-6 text-center text-xs text-slate-400 border-t border-slate-100">
-          <div className="flex items-center justify-center gap-1 mb-1">
-            <ShieldCheck size={12} className="text-emerald-500" />
-            <span className="text-emerald-600 font-medium">SSL Encrypted</span>
-            <span className="mx-2">·</span>
-            <span>Built on CBO Open Banking Standards</span>
-          </div>
-          <span>© 2026 PayOman. All rights reserved.</span>
-        </footer>
+      </div>
+
+      {/* Right Form Card Panel (7 cols) */}
+      <div className="lg:col-span-7 flex flex-col justify-center items-center p-6 sm:p-12">
+        <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200/80 p-8 shadow-[0_8px_30px_rgba(15,23,42,0.04)]">
+          {children}
+        </div>
       </div>
     </div>
   )
 }
 
-// Login
+// Login Page
 export function LoginPage() {
   const { login } = useApp()
   const navigate = useNavigate()
@@ -181,8 +96,8 @@ export function LoginPage() {
 
   const validate = () => {
     const e = {}
-    if (!form.email) e.email = 'Email is required'
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'Enter a valid email'
+    if (!form.email) e.email = 'Email address is required'
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'Enter a valid email address'
     if (!form.password) e.password = 'Password is required'
     return e
   }
@@ -203,7 +118,7 @@ export function LoginPage() {
       }
     } catch (error) {
       if (error.code === 'USER_UNVERIFIED') {
-        navigate('/auth/verify-kyc', { state: { userId: error.userId } }) // Pass userId to KYC page
+        navigate('/auth/verify-kyc', { state: { userId: error.userId } })
       } else if (error.code === 'EMAIL_UNVERIFIED') {
         setErrors({ general: 'Please verify your email address before logging in. Check your inbox for the verification link.' })
       } else {
@@ -216,27 +131,28 @@ export function LoginPage() {
 
   return (
     <AuthShell>
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900 mb-1.5">Welcome back</h1>
-        <p className="text-sm text-slate-500">Sign in to your PayOman account</p>
+      <div className="mb-6">
+        <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight" style={{ fontFamily: 'Geist, IBM Plex Sans, system-ui' }}>Welcome back</h1>
+        <p className="text-xs text-slate-500 mt-1">Sign in to your FinConnect Open Banking portal</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {errors.success && (
-          <div className="p-3 bg-emerald-50 text-emerald-700 text-sm rounded-lg border border-emerald-200 flex items-center gap-2">
-            <CheckCircle2 size={16} />
+          <div className="p-3 bg-emerald-50 text-emerald-800 text-xs font-semibold rounded-xl border border-emerald-200 flex items-center gap-2">
+            <CheckCircle2 size={15} className="text-emerald-600" />
             {errors.success}
           </div>
         )}
         {errors.general && (
-          <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200">
+          <div className="p-3 bg-rose-50 text-rose-800 text-xs font-semibold rounded-xl border border-rose-200">
             {errors.general}
           </div>
         )}
+
         <Input
-          label="Email address"
+          label="Email Address"
           type="email"
-          placeholder="name@example.com"
+          placeholder="name@domain.om"
           icon={<Mail size={15} />}
           value={form.email}
           onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
@@ -244,6 +160,7 @@ export function LoginPage() {
           required
           autoComplete="email"
         />
+
         <Input
           label="Password"
           type={showPw ? 'text' : 'password'}
@@ -266,24 +183,24 @@ export function LoginPage() {
           autoComplete="current-password"
         />
 
-        <div className="flex items-center justify-between">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" className="w-4 h-4 rounded border-slate-300 text-brand-600 cursor-pointer" />
-            <span className="text-sm text-slate-600">Remember me</span>
+        <div className="flex items-center justify-between text-xs pt-1">
+          <label className="flex items-center gap-2 cursor-pointer text-slate-600 font-medium">
+            <input type="checkbox" className="w-3.5 h-3.5 rounded border-slate-300 text-brand-600 cursor-pointer" />
+            <span>Remember me</span>
           </label>
-          <Link to="/auth/forgot-password" className="text-sm text-brand-600 hover:text-brand-800 font-medium transition-colors">
+          <Link to="/auth/forgot-password" className="text-brand-600 hover:text-brand-800 font-bold transition-colors">
             Forgot password?
           </Link>
         </div>
 
-        <Button type="submit" className="w-full" loading={loading} iconRight={!loading && <ArrowRight size={16} />}>
-          {loading ? 'Signing in…' : 'Sign in to PayOman'}
+        <Button type="submit" className="w-full mt-2 shadow-sm" loading={loading} iconRight={!loading && <ArrowRight size={15} />}>
+          {loading ? 'Authenticating…' : 'Sign in to FinConnect'}
         </Button>
       </form>
 
-      <p className="text-center text-sm text-slate-500 mt-6">
+      <p className="text-center text-xs text-slate-500 mt-6 pt-4 border-t border-slate-100">
         Don't have an account?{' '}
-        <Link to="/auth/register" className="text-brand-600 hover:text-brand-800 font-semibold transition-colors">
+        <Link to="/auth/register" className="text-brand-600 hover:text-brand-800 font-bold transition-colors">
           Create account
         </Link>
       </p>
@@ -291,61 +208,42 @@ export function LoginPage() {
   )
 }
 
-// Register
-const getPasswordStrength = (pw) => {
-  if (!pw) return 0;
-  let score = 0;
-  if (pw.length >= 8) score++;
-  if (/[a-z]/.test(pw) && /[A-Z]/.test(pw) && /\d/.test(pw)) score++;
-  if (/[^a-zA-Z\d]/.test(pw)) score++;
-  return score;
-}
-
+// Register Page
 export function RegisterPage() {
   const navigate = useNavigate()
   const [step, setStep] = useState(0)
   const [form, setForm] = useState({
     name: '', email: '', phone: '', dateOfBirth: '',
-    password: '', confirmPassword: '', agreed: false,
+    password: '', confirmPassword: ''
   })
   const [showPw, setShowPw] = useState(false)
   const [errors, setErrors] = useState({})
   const { register } = useApp()
   const [loading, setLoading] = useState(false)
   const [registered, setRegistered] = useState(false)
-  const pwScore = getPasswordStrength(form.password)
 
   const validate = () => {
     const e = {}
     if (step === 0) {
-      if (!form.name) e.name = 'Required'
-      if (!form.email) e.email = 'Required'
-      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'Invalid email'
-      
-      if (form.phone) {
-        if (!/^\+?[0-9\s()-]+$/.test(form.phone)) {
-          e.phone = 'Invalid phone number format'
-        } else if (form.phone.length < 8 || form.phone.length > 15) {
-          e.phone = 'Must be 8-15 characters'
-        }
-      }
+      if (!form.name) e.name = 'Full name is required'
+      if (!form.email) e.email = 'Email address is required'
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'Enter a valid email'
     }
     if (step === 1) {
-      if (!form.password) e.password = 'Required'
-      else if (form.password.length < 8 || form.password.length > 16) e.password = 'Must be 8-16 characters'
-      else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z\d])/.test(form.password)) e.password = 'Must contain uppercase, lowercase, number, and special character'
+      if (!form.password) e.password = 'Password is required'
+      else if (form.password.length < 8) e.password = 'Must be at least 8 characters'
       if (form.password !== form.confirmPassword) e.confirmPassword = 'Passwords do not match'
     }
     return e
   }
 
-  const next = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setErrors({})
     const errs = validate()
     if (Object.keys(errs).length) { setErrors(errs); return }
 
-    if (step < 1) { setStep(s => s + 1); return }
+    if (step === 0) { setStep(1); return }
 
     setLoading(true)
     try {
@@ -353,12 +251,12 @@ export function RegisterPage() {
         name: form.name,
         email: form.email,
         password: form.password,
-      };
-      if (form.phone) payload.phone = form.phone;
-      if (form.dateOfBirth) payload.dateOfBirth = form.dateOfBirth;
+      }
+      if (form.phone) payload.phone = form.phone
+      if (form.dateOfBirth) payload.dateOfBirth = form.dateOfBirth
 
-      const response = await register(payload);
-      setRegistered(true);
+      await register(payload)
+      setRegistered(true)
     } catch (error) {
       setErrors({ general: error.message })
     } finally {
@@ -366,171 +264,127 @@ export function RegisterPage() {
     }
   }
 
-  const field = (key) => ({
-    value: form[key],
-    onChange: e => {
-      let val = e.target.value
-      if (key === 'phone') {
-        val = val.replace(/[^\d\s+()-]/g, '')
-      }
-      setForm(p => ({ ...p, [key]: val }))
-    },
-    error: errors[key],
-  })
-
   return (
     <AuthShell>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900 mb-1.5">Create account</h1>
-        <p className="text-sm text-slate-500">Step {step + 1} of 2 — {step === 0 ? 'Personal details' : 'Set your password'}</p>
-        <div className="flex gap-1.5 mt-4">
+        <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight" style={{ fontFamily: 'Geist, IBM Plex Sans, system-ui' }}>Create Account</h1>
+        <p className="text-xs text-slate-500 mt-1">Step {step + 1} of 2 — {step === 0 ? 'Personal Info' : 'Security Setup'}</p>
+        <div className="flex gap-1.5 mt-3">
           {[0, 1].map(i => (
-            <div key={i} className={cn(
-              'h-1 rounded-full flex-1 transition-all duration-300',
-              i <= step ? 'bg-brand-600' : 'bg-slate-200'
-            )} />
+            <div key={i} className={cn('h-1 rounded-full flex-1 transition-all', i <= step ? 'bg-brand-600' : 'bg-slate-200')} />
           ))}
         </div>
       </div>
 
       {registered ? (
-        <div className="text-center">
-          <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-5">
-            <CheckCircle2 size={32} className="text-emerald-600" />
+        <div className="text-center space-y-4 py-4">
+          <div className="w-14 h-14 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto text-emerald-600">
+            <CheckCircle2 size={28} />
           </div>
-          <h2 className="text-2xl font-bold text-slate-900 mb-2">Check your inbox</h2>
-          <p className="text-sm text-slate-500 mb-6">We've sent a verification link to <strong className="text-slate-700">{form.email}</strong>. Please verify your email to continue.</p>
-          <Link to="/auth/login">
-            <Button variant="secondary" className="w-full">Go to sign in</Button>
+          <h2 className="text-xl font-bold text-slate-900">Check Your Inbox</h2>
+          <p className="text-xs text-slate-500 max-w-xs mx-auto">
+            We sent a verification link to <strong className="text-slate-700">{form.email}</strong>. Please verify your email to log in.
+          </p>
+          <Link to="/auth/login" className="block pt-2">
+            <Button variant="secondary" className="w-full">Back to Sign In</Button>
           </Link>
         </div>
       ) : (
-      <div className="w-full">
-      <form onSubmit={next} className="space-y-4">
-        {errors.general && (
-          <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200">
-            {errors.general}
-          </div>
-        )}
-        {step === 0 ? (
-          <>
-            <Input label="Full name" placeholder="Ahmed Al-Balushi" icon={<User size={15} />} required {...field('name')} />
-            <Input label="Email address" type="email" placeholder="name@example.com" icon={<Mail size={15} />} required {...field('email')} />
-            <div className="grid grid-cols-2 gap-3">
-              <Input label="Phone number (Optional)" type="tel" placeholder="+968 9123 4567" icon={<Phone size={15} />} {...field('phone')} />
-              <Input label="Date of birth (Optional)" type="date" {...field('dateOfBirth')} />
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {errors.general && (
+            <div className="p-3 bg-rose-50 text-rose-800 text-xs font-semibold rounded-xl border border-rose-200">
+              {errors.general}
             </div>
-          </>
-        ) : (
-          <>
-            <Input
-              label="Password"
-              type={showPw ? 'text' : 'password'}
-              placeholder="8 to 16 characters"
-              icon={<Lock size={15} />}
-              iconRight={
-                <button type="button" onClick={() => setShowPw(v => !v)} className="cursor-pointer hover:text-slate-600 transition-colors" aria-label="Toggle password">
-                  {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              }
-              required
-              {...field('password')}
-            />
-            <Input
-              label="Confirm password"
-              type="password"
-              placeholder="Repeat password"
-              icon={<Lock size={15} />}
-              required
-              {...field('confirmPassword')}
-            />
-
-            {/* Password strength */}
-            {form.password && (
-              <div className="space-y-1.5">
-                <div className="flex gap-1">
-                  {[1, 2, 3].map((n) => (
-                    <div key={n} className={cn(
-                      'h-1 flex-1 rounded-full transition-colors',
-                      pwScore >= n ? (pwScore === 1 ? 'bg-red-400' : pwScore === 2 ? 'bg-amber-400' : 'bg-emerald-400') : 'bg-slate-200'
-                    )} />
-                  ))}
-                </div>
-                <p className="text-xs text-slate-500">
-                  {form.password.length < 8 ? 'Too short' :
-                    pwScore === 1 ? 'Weak — add mixed case, numbers, and symbols' :
-                      pwScore === 2 ? 'Good — add symbols for a strong password' :
-                        'Strong'}
-                </p>
-              </div>
-            )}
-
-            {/* <label className={cn('flex items-start gap-3 cursor-pointer', errors.agreed && 'text-red-600')}>
-              <input
-                type="checkbox"
-                checked={form.agreed}
-                onChange={e => setForm(p => ({ ...p, agreed: e.target.checked }))}
-                className="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600 cursor-pointer"
-              />
-              <span className="text-sm text-slate-600">
-                I agree to the{' '}
-                <a href="#" className="text-brand-600 hover:underline font-medium">Terms of Service</a>
-                {' '}and{' '}
-                <a href="#" className="text-brand-600 hover:underline font-medium">Privacy Policy</a>
-              </span>
-            </label>
-            {errors.agreed && <p className="text-xs text-red-500">{errors.agreed}</p>} */}
-          </>
-        )}
-
-        <div className="flex gap-3 pt-1">
-          {step > 0 && (
-            <Button type="button" variant="secondary" onClick={() => setStep(s => s - 1)} className="flex-none px-4">
-              Back
-            </Button>
           )}
-          <Button type="submit" loading={loading} iconRight={!loading && <ArrowRight size={16} />} className="flex-1">
-            {loading ? 'Creating account…' : step === 0 ? 'Continue' : 'Create account'}
-          </Button>
-        </div>
-      </form>
 
-      <p className="text-center text-sm text-slate-500 mt-6">
-        Already have an account?{' '}
-        <Link to="/auth/login" className="text-brand-600 hover:text-brand-800 font-semibold transition-colors">Sign in</Link>
-      </p>
-      </div>
+          {step === 0 ? (
+            <>
+              <Input label="Full Name" placeholder="Ahmed Al-Balushi" icon={<User size={15} />} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} error={errors.name} required />
+              <Input label="Email Address" type="email" placeholder="name@domain.om" icon={<Mail size={15} />} value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} error={errors.email} required />
+              <Input label="Phone Number (Optional)" type="tel" placeholder="+968 9123 4567" icon={<Phone size={15} />} value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} />
+            </>
+          ) : (
+            <>
+              <Input
+                label="Password"
+                type={showPw ? 'text' : 'password'}
+                placeholder="At least 8 characters"
+                icon={<Lock size={15} />}
+                iconRight={
+                  <button type="button" onClick={() => setShowPw(v => !v)} className="cursor-pointer hover:text-slate-600 transition-colors">
+                    {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                }
+                value={form.password}
+                onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
+                error={errors.password}
+                required
+              />
+              <Input
+                label="Confirm Password"
+                type="password"
+                placeholder="Repeat password"
+                icon={<Lock size={15} />}
+                value={form.confirmPassword}
+                onChange={e => setForm(p => ({ ...p, confirmPassword: e.target.value }))}
+                error={errors.confirmPassword}
+                required
+              />
+            </>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            {step === 1 && (
+              <Button type="button" variant="secondary" onClick={() => setStep(0)} className="w-1/3">
+                Back
+              </Button>
+            )}
+            <Button type="submit" className="flex-1 shadow-sm" loading={loading} iconRight={!loading && <ArrowRight size={15} />}>
+              {loading ? 'Processing…' : step === 0 ? 'Continue' : 'Complete Registration'}
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {!registered && (
+        <p className="text-center text-xs text-slate-500 mt-6 pt-4 border-t border-slate-100">
+          Already have an account?{' '}
+          <Link to="/auth/login" className="text-brand-600 hover:text-brand-800 font-bold transition-colors">Sign in</Link>
+        </p>
       )}
     </AuthShell>
   )
 }
 
-// Forgot Password
+// Forgot Password Page
 export function ForgotPasswordPage() {
+  const { API_URL, addToast } = useApp()
   const [email, setEmail] = useState('')
   const [sent, setSent] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [errorMsg, setErrorMsg] = useState('')
-  const { API_URL } = useApp()
+  const [error, setError] = useState('')
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!email) return
     setLoading(true)
-    setErrorMsg('')
+    setError('')
     try {
       const response = await fetch(`${API_URL}/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
+        body: JSON.stringify({ email: email.trim().toLowerCase() })
       })
       const data = await response.json()
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to process request')
+      if (response.ok) {
+        setSent(true)
+      } else {
+        setError(data.message || 'Failed to send reset link')
+        addToast?.({ type: 'danger', message: data.message || 'Failed to send reset link' })
       }
-      setSent(true)
-    } catch(err) {
-      setErrorMsg(err.message)
+    } catch (err) {
+      setError('Network error. Please check your connection and try again.')
+      addToast?.({ type: 'danger', message: 'Network error. Please try again.' })
     } finally {
       setLoading(false)
     }
@@ -539,44 +393,41 @@ export function ForgotPasswordPage() {
   return (
     <AuthShell>
       {sent ? (
-        <div className="text-center">
-          <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-5">
-            <CheckCircle2 size={32} className="text-emerald-600" />
+        <div className="text-center space-y-4 py-4">
+          <div className="w-14 h-14 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto text-emerald-600">
+            <CheckCircle2 size={28} />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 mb-2">Check your inbox</h1>
-          <p className="text-sm text-slate-500 mb-6">We've sent a reset link to <strong className="text-slate-700">{email}</strong></p>
-          <Link to="/auth/login">
-            <Button variant="secondary" className="w-full">Back to sign in</Button>
+          <h2 className="text-xl font-bold text-slate-900">Check Your Email</h2>
+          <p className="text-xs text-slate-500 max-w-xs mx-auto">
+            If an account exists with email <strong className="text-slate-700">{email}</strong>, a password reset link has been sent.
+          </p>
+          <Link to="/auth/login" className="block pt-2">
+            <Button variant="secondary" className="w-full">Back to Sign In</Button>
           </Link>
         </div>
       ) : (
         <>
-          <div className="mb-8">
-            <h1 className="text-2xl font-bold text-slate-900 mb-1.5">Reset password</h1>
-            <p className="text-sm text-slate-500">Enter your email and we'll send you a reset link.</p>
+          <div className="mb-6">
+            <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight" style={{ fontFamily: 'Geist, IBM Plex Sans, system-ui' }}>Reset Password</h1>
+            <p className="text-xs text-slate-500 mt-1">Enter your registered email address to receive reset instructions</p>
           </div>
+
+          {error && (
+            <div className="p-3 mb-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
+              {error}
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
-            {errorMsg && (
-              <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200">
-                {errorMsg}
-              </div>
-            )}
-            <Input
-              label="Email address"
-              type="email"
-              placeholder="name@example.com"
-              icon={<Mail size={15} />}
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              required
-            />
-            <Button type="submit" loading={loading} className="w-full" iconRight={!loading && <ArrowRight size={16} />}>
-              {loading ? 'Sending…' : 'Send reset link'}
+            <Input label="Email Address" type="email" placeholder="name@example.com" icon={<Mail size={15} />} value={email} onChange={e => setEmail(e.target.value)} required />
+            <Button type="submit" loading={loading} className="w-full shadow-sm" iconRight={!loading && <ArrowRight size={15} />}>
+              {loading ? 'Sending…' : 'Send Reset Link'}
             </Button>
           </form>
-          <p className="text-center text-sm text-slate-500 mt-6">
-            <Link to="/auth/login" className="text-brand-600 hover:text-brand-800 font-semibold transition-colors">
-              ← Back to sign in
+
+          <p className="text-center text-xs text-slate-500 mt-6 pt-4 border-t border-slate-100">
+            <Link to="/auth/login" className="text-brand-600 hover:text-brand-800 font-bold transition-colors">
+              ← Back to Sign In
             </Link>
           </p>
         </>
@@ -585,47 +436,56 @@ export function ForgotPasswordPage() {
   )
 }
 
-// KYC Verification
+// KYC Verification Page
 export function KycVerifyPage() {
-  const navigate = useNavigate()
   const location = useLocation()
-  const { user } = useApp()
-
+  const { user, API_URL } = useApp()
   const userId = location.state?.userId || user?.id
+  const [loading, setLoading] = useState(false)
 
   if (!userId) {
     return <Navigate to="/auth/login" replace />
   }
 
+  const handleStartVerification = async () => {
+    setLoading(true)
+    let templateId = 'itmpl_AoVizgpBK4mgFaiH7dRjQykpb2BfoV'
+    let environment = 'sandbox'
+
+    try {
+      const res = await fetch(`${API_URL}/kyc/config`, { credentials: 'include' })
+      const json = await res.json()
+      if (json?.data?.templateId) {
+        templateId = json.data.templateId
+      }
+      if (json?.data?.environment) {
+        environment = json.data.environment
+      }
+    } catch (err) {
+      console.warn('Failed to fetch KYC config from backend, using fallback template:', err)
+    }
+
+    const redirectUri = encodeURIComponent(window.location.origin + '/auth/login?kyc_success=true')
+    window.location.href = `https://withpersona.com/verify?template-id=${templateId}&environment=${environment}&reference-id=${userId}&redirect-uri=${redirectUri}`
+  }
+
   return (
     <AuthShell>
-      <div className="mb-6">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">
-            <ShieldCheck size={16} className="text-amber-600" />
-          </div>
-          <span className="text-xs font-semibold text-amber-700 uppercase tracking-wider">Identity Verification</span>
+      <div className="text-center space-y-4 py-4">
+        <div className="w-14 h-14 bg-brand-50 rounded-2xl flex items-center justify-center mx-auto text-brand-600">
+          <ShieldCheck size={32} />
         </div>
-        <h1 className="text-2xl font-bold text-slate-900 mb-1.5">Verify your identity</h1>
-        <p className="text-sm text-slate-500 mb-6">Required by Oman's Central Bank regulations.</p>
-      </div>
-
-      <div className="min-h-[400px] w-full border rounded-xl overflow-hidden bg-white p-8 flex flex-col items-center justify-center text-center">
-        <div className="w-16 h-16 bg-brand-50 rounded-2xl flex items-center justify-center mb-4">
-          <ShieldCheck size={32} className="text-brand-600" />
-        </div>
-        <h2 className="text-xl font-bold text-slate-900 mb-2">Ready to verify</h2>
-        <p className="text-slate-500 mb-8 max-w-sm">
-          You will be redirected to Persona's secure verification portal to complete your KYC process.
+        <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight" style={{ fontFamily: 'Geist, IBM Plex Sans, system-ui' }}>Identity Verification</h1>
+        <p className="text-xs text-slate-500 max-w-xs mx-auto">
+          Required under Open Banking and KYC regulatory guidelines before accessing banking services.
         </p>
+
         <Button
-          className="w-full max-w-sm"
-          onClick={() => {
-            const redirectUri = encodeURIComponent(window.location.origin + '/auth/login?kyc_success=true');
-            window.location.href = `https://withpersona.com/verify?template-id=itmpl_A7sz8n9q43th7pXtzPLoefiH7XXqW5&environment=sandbox&reference-id=${userId}&redirect-uri=${redirectUri}`;
-          }}
+          className="w-full mt-4 shadow-sm"
+          disabled={loading}
+          onClick={handleStartVerification}
         >
-          Begin Verification
+          {loading ? 'Initializing Verification...' : 'Begin Persona Verification'}
         </Button>
       </div>
     </AuthShell>

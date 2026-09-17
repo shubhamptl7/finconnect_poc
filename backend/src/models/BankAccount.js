@@ -112,21 +112,69 @@ const defineBankAccount = (sequelize, DataTypes) => {
         type: DataTypes.STRING(64),
         allowNull: true,
       },
+      bic: {
+        // WHY: SWIFT/BIC code required for international wire payments to UK/EU external bank accounts.
+        type: DataTypes.TEXT,
+        allowNull: true,
+        get() {
+          return decrypt(this.getDataValue('bic'));
+        },
+        set(value) {
+          if (value) {
+            this.setDataValue('bic', encrypt(value));
+            this.setDataValue('bic_hash', generateSearchHash(value));
+          } else {
+            this.setDataValue('bic', null);
+            this.setDataValue('bic_hash', null);
+          }
+        },
+      },
+      bic_hash: {
+        type: DataTypes.STRING(64),
+        allowNull: true,
+      },
+      routing_number: {
+        // WHY: ABA routing number for US ACH & Wire transfers, extracted via Plaid /auth/get endpoint.
+        type: DataTypes.TEXT,
+        allowNull: true,
+        get() {
+          return decrypt(this.getDataValue('routing_number'));
+        },
+        set(value) {
+          if (value) {
+            this.setDataValue('routing_number', encrypt(value));
+            this.setDataValue('routing_number_hash', generateSearchHash(value));
+          } else {
+            this.setDataValue('routing_number', null);
+            this.setDataValue('routing_number_hash', null);
+          }
+        },
+      },
+      routing_number_hash: {
+        type: DataTypes.STRING(64),
+        allowNull: true,
+      },
+      account_subtype: {
+        // WHY: Distinguishes between checking, savings, etc.
+        type: DataTypes.STRING(20),
+        allowNull: true,
+      },
       currency: {
-        type: DataTypes.STRING(3), // e.g., 'OMR', 'USD'
+        type: DataTypes.STRING(3), // e.g., 'GBP'
         allowNull: false,
+        defaultValue: 'GBP',
       },
       current_balance: {
-        // PLAID JARGON: 'current' balance.
-        // WHY: This is the total balance including pending transactions (money that hasn't fully cleared yet).
-        type: DataTypes.DECIMAL(15, 3),
+        // Integer minor units (pence)
+        type: DataTypes.BIGINT,
         allowNull: false,
+        defaultValue: 0,
       },
       available_balance: {
-        // PLAID JARGON: 'available' balance.
-        // WHY: This is the actual money the user can spend right now (ignores pending debits).
-        type: DataTypes.DECIMAL(15, 3),
+        // Integer minor units (pence)
+        type: DataTypes.BIGINT,
         allowNull: true,
+        defaultValue: 0,
       },
       last_synced_at: {
         type: DataTypes.DATE,

@@ -1,13 +1,14 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Search, Filter, Download, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react'
-import { AppLayout } from '@/components/layout/AppLayout'
-import { Card, Button, Badge, Input, Select } from '@/components/ui'
+import { Search, Filter, Download, ArrowUpDown, ChevronLeft, ChevronRight, ArrowDownLeft, ArrowUpRight, Receipt, Calendar } from 'lucide-react'
+import { AppLayout, BreadcrumbBar } from '@/components/layout/AppLayout'
+import { Card, Button, Badge, Select } from '@/components/ui'
 import { formatCurrency, formatDate, cn } from '@/lib/utils'
 import { useApp } from '@/store/AppContext'
 
 const CATEGORIES = ['All', 'Income', 'Shopping', 'Transport', 'Utilities', 'Dining', 'Healthcare', 'Entertainment', 'Housing', 'Transfer']
-const PAGE_SIZE = 8
+const PAGE_SIZE = 50
 
 const categoryColors = {
   Income: 'success', Shopping: 'info', Transport: 'warning',
@@ -16,7 +17,7 @@ const categoryColors = {
 }
 
 export default function TransactionsPage() {
-  const { transactions, payments, bankAccounts, syncTransactions, addToast, isDecryptingTransactions } = useApp()
+  const { transactions, transactionMeta, payments, bankAccounts, fetchTransactions, syncTransactions, addToast, isDecryptingTransactions } = useApp()
   const [search, setSearch] = useState('')
   const [accountId, setAccountId] = useState('All')
   const [category, setCategory] = useState('All')
@@ -25,17 +26,23 @@ export default function TransactionsPage() {
   const [page, setPage] = useState(1)
   const [syncing, setSyncing] = useState(false)
 
+  // Fetch transactions dynamically whenever page changes
+  useEffect(() => {
+    fetchTransactions(PAGE_SIZE, (page - 1) * PAGE_SIZE)
+  }, [page, fetchTransactions])
+
   const handleSync = async () => {
     setSyncing(true)
-    let connId = null;
+    let connId = null
     if (accountId !== 'All') {
-       const account = bankAccounts.find(a => a.id === accountId);
-       if (account && account.connection_id) connId = account.connection_id;
+       const account = bankAccounts.find(a => a.id === accountId)
+       if (account && account.connection_id) connId = account.connection_id
     }
     const success = await syncTransactions(connId)
     setSyncing(false)
     if (success) {
-      addToast({ type: 'success', title: 'Sync Complete', message: 'Transactions are up to date.' })
+      addToast({ type: 'success', title: 'Sync Complete', message: 'Transactions updated live.' })
+      fetchTransactions(PAGE_SIZE, (page - 1) * PAGE_SIZE)
     } else {
       addToast({ type: 'error', title: 'Sync Failed', message: 'Could not sync transactions.' })
     }
@@ -75,149 +82,190 @@ export default function TransactionsPage() {
     return list
   }, [combinedTransactions, search, accountId, category, type, sort])
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE) || 1
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const totalRecords = transactionMeta?.totalCount || filtered.length
+  const totalPages = Math.ceil(totalRecords / PAGE_SIZE) || 1
 
-  const totalIn = transactions.filter(t => t.type === 'credit' && t.amount !== null).reduce((s, t) => s + parseFloat(t.amount), 0)
-  const totalOut = transactions.filter(t => t.type === 'debit' && t.amount !== null).reduce((s, t) => s + Math.abs(parseFloat(t.amount)), 0)
+  const pageNumbers = useMemo(() => {
+    const maxVisible = 5
+    let start = Math.max(1, page - Math.floor(maxVisible / 2))
+    let end = Math.min(totalPages, start + maxVisible - 1)
+    if (end - start + 1 < maxVisible) {
+      start = Math.max(1, end - maxVisible + 1)
+    }
+    const pages = []
+    for (let i = start; i <= end; i++) {
+      pages.push(i)
+    }
+    return pages
+  }, [page, totalPages])
+
+  const totals = useMemo(() => {
+    let inc = 0
+    let exp = 0
+    filtered.forEach(t => {
+      if (t.amount !== null) {
+        const val = Math.abs(parseFloat(t.amount || 0))
+        if (t.type === 'credit') inc += val
+        else exp += val
+      }
+    })
+    return { inc, exp }
+  }, [filtered])
 
   return (
-    <AppLayout title="Transaction History" subtitle="Full history of your financial activity">
-      <div className="space-y-5">
+    <AppLayout title="Transaction History" subtitle="Live stream of your financial activity across all connected bank accounts">
+      <div className="space-y-6 max-w-6xl mx-auto">
+        {/* Navigation Breadcrumb Bar */}
+        <BreadcrumbBar
+          items={[
+            { label: 'Overview', to: '/app/dashboard' },
+            { label: 'Transaction History' }
+          ]}
+          backTo="/app/dashboard"
+          backLabel="Overview"
+        />
 
-        {/* Filters */}
-        <Card className="p-4">
-          <div className="flex flex-col sm:flex-row gap-3 overflow-x-auto pb-2 -mb-2 no-scrollbar">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+        {/* Metric Summary Bar */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs border-l-4 border-l-brand-600">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Bank Transactions</p>
+            <p className="text-2xl font-black text-slate-900 font-mono mt-1">{totalRecords}</p>
+            <p className="text-[11px] font-semibold text-slate-500 mt-0.5">Stored in Encrypted DB</p>
+          </div>
+          <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs border-l-4 border-l-emerald-500">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Money Received</p>
+            <p className="text-2xl font-black text-emerald-600 font-mono mt-1">{formatCurrency(totals.inc)}</p>
+            <p className="text-[11px] font-semibold text-emerald-700 mt-0.5">Credits in view</p>
+          </div>
+          <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs border-l-4 border-l-rose-500">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Money Spent</p>
+            <p className="text-2xl font-black text-rose-600 font-mono mt-1">{formatCurrency(totals.exp)}</p>
+            <p className="text-[11px] font-semibold text-rose-700 mt-0.5">Debits in view</p>
+          </div>
+        </div>
+
+        {/* Filters Header Container */}
+        <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm space-y-4">
+          <div className="flex flex-col md:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
               <input
                 type="text"
-                placeholder="Search transactions, references..."
+                placeholder="Search description, reference, or recipient…"
                 value={search}
                 onChange={e => { setSearch(e.target.value); setPage(1) }}
-                className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm placeholder:text-slate-400 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold focus:outline-none focus:border-brand-500 focus:bg-white transition-all"
               />
             </div>
-            <Select value={accountId} onChange={e => { setAccountId(e.target.value); setPage(1) }} className="w-full sm:w-48">
-              <option value="All">All Accounts</option>
+
+            <Select value={accountId} onChange={e => { setAccountId(e.target.value); setPage(1) }} className="w-full md:w-48 text-xs font-semibold">
+              <option value="All">All Bank Accounts</option>
               {bankAccounts.map(acc => (
                 <option key={acc.id} value={acc.id}>{acc.connection?.bank_name} ({acc.account_number})</option>
               ))}
             </Select>
-            <Select
-              value={type}
-              onChange={e => { setType(e.target.value); setPage(1) }}
-              className="w-full sm:w-36"
-            >
+
+            <Select value={type} onChange={e => { setType(e.target.value); setPage(1) }} className="w-full md:w-36 text-xs font-semibold">
               <option value="all">All Types</option>
-              <option value="credit">Money In</option>
-              <option value="debit">Money Out</option>
+              <option value="credit">Money In (+)</option>
+              <option value="debit">Money Out (−)</option>
             </Select>
-            <Select
-              value={sort}
-              onChange={e => setSort(e.target.value)}
-              className="w-full sm:w-40"
-            >
-              <option value="date-desc">Newest first</option>
-              <option value="date-asc">Oldest first</option>
-              <option value="amount-desc">Highest amount</option>
-              <option value="amount-asc">Lowest amount</option>
+
+            <Select value={sort} onChange={e => setSort(e.target.value)} className="w-full md:w-40 text-xs font-semibold">
+              <option value="date-desc">Newest First</option>
+              <option value="date-asc">Oldest First</option>
+              <option value="amount-desc">Highest Amount</option>
+              <option value="amount-asc">Lowest Amount</option>
             </Select>
-            <Button onClick={handleSync} loading={syncing} variant="secondary" icon={<ArrowUpDown size={15} />} className="flex-shrink-0">Sync</Button>
+
+            <Button onClick={handleSync} loading={syncing} variant="secondary" icon={<ArrowUpDown size={15} />} className="flex-shrink-0">
+              Sync
+            </Button>
           </div>
 
-          {/* Category pills */}
-          <div className="flex flex-wrap gap-1.5 mt-3">
+          {/* Category Filter Pills */}
+          <div className="flex flex-wrap gap-1.5 pt-2 border-t border-slate-100">
             {CATEGORIES.map(cat => (
               <button
                 key={cat}
                 onClick={() => { setCategory(cat); setPage(1) }}
                 className={cn(
-                  'px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 cursor-pointer',
+                  'px-3.5 py-1 rounded-xl text-xs font-semibold transition-all cursor-pointer',
                   category === cat
-                    ? 'bg-brand-700 text-white shadow-sm'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800'
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 )}
               >
                 {cat}
               </button>
             ))}
           </div>
-        </Card>
+        </div>
 
-        {/* Table */}
-        <Card padding={false}>
+        {/* Data Stream Table */}
+        <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="data-table">
-              <thead>
+            <table className="w-full text-left text-xs text-slate-600">
+              <thead className="bg-slate-50 text-slate-400 font-extrabold uppercase tracking-wider border-b border-slate-200">
                 <tr>
-                  <th>Description</th>
-                  <th>Category</th>
-                  <th>Account</th>
-                  <th>Date</th>
-                  <th>Status</th>
-                  <th className="text-right">Amount</th>
+                  <th className="py-3.5 px-6 rounded-l-xl">Description</th>
+                  <th className="py-3.5 px-4">Category</th>
+                  <th className="py-3.5 px-4">Bank Account</th>
+                  <th className="py-3.5 px-4">Date & Time</th>
+                  <th className="py-3.5 px-4">Status</th>
+                  <th className="py-3.5 px-6 text-right rounded-r-xl">Amount</th>
                 </tr>
               </thead>
-              <tbody>
-                {paginated.length === 0 ? (
+              <tbody className="divide-y divide-slate-100">
+                {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-12 text-slate-400 text-sm">
-                      No transactions found
+                    <td colSpan={6} className="text-center py-12 text-slate-400 text-xs font-semibold">
+                      <Receipt size={28} className="mx-auto mb-2 opacity-40" />
+                      {isDecryptingTransactions ? 'Decrypting transaction stream...' : 'No transactions matching filters.'}
                     </td>
                   </tr>
                 ) : (
-                  paginated.map((txn, i) => {
-                    const account = bankAccounts.find(a => a.id === txn.account_id) || txn.account;
+                  filtered.map((txn) => {
+                    const account = bankAccounts.find(a => a.id === txn.account_id) || txn.account
+                    const isCredit = txn.type === 'credit'
                     return (
-                      <motion.tr
-                        key={txn.id}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ delay: i * 0.03 }}
-                        className="cursor-pointer"
-                      >
-                        <td>
-                          <div>
-                            <p className="font-semibold text-slate-900 text-sm">{txn.description || <span className="text-slate-400 italic">Encrypted</span>}</p>
-                            <p className="text-xs text-slate-400 font-mono mt-0.5">{txn.external_transaction_id?.slice(0, 10)}...</p>
+                      <tr key={txn.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-4 px-6">
+                          <div className="flex items-center gap-3">
+                            <div className={cn(
+                              'w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 text-xs font-bold',
+                              isCredit ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-700'
+                            )}>
+                              {isCredit ? <ArrowDownLeft size={15} /> : <ArrowUpRight size={15} />}
+                            </div>
+                            <div>
+                              <p className="font-bold text-slate-900 text-xs">{txn.description || 'Encrypted Transaction'}</p>
+                              <p className="text-[10px] text-slate-400 font-mono mt-0.5">{txn.external_transaction_id || 'OB-REF-88402'}</p>
+                            </div>
                           </div>
                         </td>
-                        <td>
+                        <td className="py-4 px-4">
                           <Badge variant={categoryColors[txn.category] || 'neutral'}>{txn.category}</Badge>
                         </td>
-                        <td>
-                          {txn.is_pending_payment && !txn.account ? (
-                            <p className="text-xs italic text-slate-500 mt-1">Processing via Plaid...</p>
-                          ) : (
-                            <>
-                              <p className="text-xs text-slate-800 font-semibold">{account?.connection?.bank_name?.split(' ')[0]}</p>
-                              <p className="text-xs text-slate-500">{account?.account_name}</p>
-                              <p className="text-xs text-slate-400 font-mono">{account?.account_number}</p>
-                            </>
-                          )}
+                        <td className="py-4 px-4">
+                          <p className="font-bold text-slate-800 text-xs">{account?.connection?.bank_name?.split(' ')[0] || 'Connected Bank'}</p>
+                          <p className="text-[10px] text-slate-400 font-mono">****{account?.account_number || '****'}</p>
                         </td>
-                        <td className="text-slate-600">
-                          <p className="text-xs">{formatDate(txn.transaction_date)}</p>
-                          <p className="text-xs text-slate-400">{new Date(txn.transaction_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                        <td className="py-4 px-4">
+                          <p className="font-semibold text-slate-700">{formatDate(txn.transaction_date)}</p>
+                          <p className="text-[10px] text-slate-400">{new Date(txn.transaction_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                         </td>
-                        <td>
-                          <Badge variant={txn.status === 'settled' ? 'success' : txn.status === 'cancelled' ? 'danger' : 'warning'} dot>
+                        <td className="py-4 px-4">
+                          <Badge variant={txn.status === 'settled' || txn.status === 'completed' ? 'success' : txn.status === 'cancelled' ? 'danger' : 'warning'} dot>
                             {txn.status}
                           </Badge>
                         </td>
-                        <td className="text-right">
-                          {isDecryptingTransactions ? (
-                            <span className="font-bold text-sm tabular-nums text-slate-400 animate-pulse">Decrypting…</span>
-                          ) : txn.amount === null ? (
-                            <span className="font-bold text-sm tabular-nums text-slate-400" title="Encrypted – enter recovery code to decrypt">•••</span>
-                          ) : (
-                            <span className={cn('font-bold text-sm tabular-nums', txn.type === 'credit' ? 'text-emerald-600' : 'text-slate-900')}>
-                              {txn.type === 'credit' ? '+' : '-'}{formatCurrency(Math.abs(parseFloat(txn.amount || 0)))}
-                            </span>
-                          )}
+                        <td className="py-4 px-6 text-right">
+                          <span className={cn('font-mono font-extrabold text-sm tabular-nums', isCredit ? 'text-emerald-600' : 'text-slate-900')}>
+                            {isCredit ? '+' : '−'}{formatCurrency(Math.abs(parseFloat(txn.amount || 0)))}
+                          </span>
                         </td>
-                      </motion.tr>
+                      </tr>
                     )
                   })
                 )}
@@ -225,43 +273,45 @@ export default function TransactionsPage() {
             </table>
           </div>
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100">
-              <p className="text-xs text-slate-500">
-                Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
-              </p>
-              <div className="flex items-center gap-1">
+          {/* Dynamic Numbered Pagination Bar */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 text-xs">
+            <span className="text-slate-500 font-medium">
+              Showing {totalRecords === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, totalRecords)} of {totalRecords}
+            </span>
+            <div className="flex items-center gap-1.5 overflow-x-auto">
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-600 font-semibold disabled:opacity-40 hover:bg-slate-50 cursor-pointer flex items-center gap-1"
+              >
+                <ChevronLeft size={14} /> Prev
+              </button>
+
+              {pageNumbers.map(pNum => (
                 <button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                  key={pNum}
+                  onClick={() => setPage(pNum)}
+                  className={cn(
+                    'w-8 h-8 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center',
+                    page === pNum
+                      ? 'bg-slate-900 text-white shadow-xs ring-2 ring-slate-900/20'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                  )}
                 >
-                  <ChevronLeft size={14} />
+                  {pNum}
                 </button>
-                {[...Array(totalPages)].map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setPage(i + 1)}
-                    className={cn(
-                      'w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium cursor-pointer transition-colors',
-                      page === i + 1 ? 'bg-brand-700 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
-                    )}
-                  >
-                    {i + 1}
-                  </button>
-                ))}
-                <button
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                >
-                  <ChevronRight size={14} />
-                </button>
-              </div>
+              ))}
+
+              <button
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-600 font-semibold disabled:opacity-40 hover:bg-slate-50 cursor-pointer flex items-center gap-1"
+              >
+                Next <ChevronRight size={14} />
+              </button>
             </div>
-          )}
-        </Card>
+          </div>
+        </div>
       </div>
     </AppLayout>
   )

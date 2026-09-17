@@ -9,13 +9,13 @@ import db from '../models/index.js';
  * - Enforces account status checks (blocks suspended or unverified accounts)
  * - Attaches fresh DB user object to request
  */
-export const authenticate = async (request, reply) => {
+export const authenticate = async (request, _reply) => {
   try {
     // 1. Verify token presence and signature using @fastify/jwt
     // This automatically looks in headers (Authorization: Bearer <token>) and cookies (token)
     try {
       await request.jwtVerify();
-    } catch (err) {
+    } catch (_err) {
       throw new AppError('Invalid, missing, or expired token', STATUS_CODES.UNAUTHORIZED);
     }
 
@@ -82,7 +82,7 @@ export const authenticate = async (request, reply) => {
  * @param {...string} roles - Allowed roles (e.g., 'admin', 'superadmin')
  */
 export const requireRole = (...roles) => {
-  return async (request, reply) => {
+  return async (request, _reply) => {
     if (!request.user) {
       throw new AppError('Authentication required before authorization', STATUS_CODES.UNAUTHORIZED);
     }

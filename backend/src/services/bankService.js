@@ -1,12 +1,40 @@
-import { Op } from 'sequelize';
-
 import db from '../models/index.js';
 import AppError from '../utils/appError.js';
 import STATUS_CODES from '../config/constants.js';
 import bankProvider from '../providers/plaid/plaidBankProvider.js';
-import notificationService from './notificationService.js';
 import logger from '../config/logger.js';
 import { generateSearchHash, eciesEncrypt } from '../utils/encryption.js';
+import Money from '../utils/money.js';
+
+import notificationService from './notificationService.js';
+
+/**
+ * Generates a valid UK IBAN with ISO 13616 MOD-97 checksum.
+ * UK IBAN format: GBkk BANK ssss ssaa aaaa aa (22 characters)
+ *
+ * @param {string} sortCode 6-digit UK sort code
+ * @param {string} accountNumber 8-digit UK account number / BACS
+ * @returns {string} 22-character valid UK IBAN
+ */
+function generateValidUkIban(sortCode = '040004', accountNumber = '88880001') {
+  const bankCode = 'PLAD';
+  const cleanSortCode = String(sortCode).replace(/\D/g, '').padStart(6, '0');
+  const cleanAccNo = String(accountNumber).replace(/\D/g, '').padStart(8, '0');
+  const bban = `${bankCode}${cleanSortCode}${cleanAccNo}`;
+
+  // Re-arrange for MOD-97 check calculation: BBAN + "GB00"
+  // G = 16, B = 11, 0 = 0, 0 = 0 -> "161100" appended to numeric string
+  const testStr = `${bban}GB00`;
+  const numericStr = testStr.replace(/[A-Z]/g, (char) => char.charCodeAt(0) - 55);
+
+  let remainder = 0;
+  for (let i = 0; i < numericStr.length; i++) {
+    remainder = (remainder * 10 + parseInt(numericStr[i], 10)) % 97;
+  }
+  const checkDigits = String(98 - remainder).padStart(2, '0');
+
+  return `GB${checkDigits}${bban}`;
+}
 
 /**
  * Bank Connection Service
@@ -89,14 +117,19 @@ const bankService = {
         let finalBacs = authData.bacsAccount || null;
         let finalIban = authData.iban || null;
         let finalSortCode = authData.sortCode || null;
+        const finalRouting = authData.routingNumber || null;
+        const finalBic = authData.bic || 'NWBKGB2L'; // NatWest BIC as UK sandbox fallback
+        const finalSubtype = acc.subtype || 'checking';
+        const finalAccountNumber = authData.accountNumber || authData.bacsAccount || acc.mask;
 
-        // --- SANDBOX OVERRIDE: Assign unique BACS ---
-        // If Plaid gave us a default sandbox BACS, generate a unique one for P2P testing
-        if (!finalBacs || finalBacs.startsWith('8000')) {
+        // --- SANDBOX OVERRIDE: Assign unique BACS & Valid MOD-97 IBAN ONLY IF Plaid provided no auth numbers ---
+        if (!finalBacs && !finalIban) {
           finalBacs = `8888${String(nextBacsCounter).padStart(4, '0')}`;
-          finalIban = `GB12PLAD040004${finalBacs}`;
           finalSortCode = '040004';
+          finalIban = generateValidUkIban(finalSortCode, finalBacs);
           nextBacsCounter++;
+        } else if (!finalIban && finalBacs) {
+          finalIban = generateValidUkIban(finalSortCode || '040004', finalBacs);
         }
 
         await db.BankAccount.upsert(
@@ -105,13 +138,16 @@ const bankService = {
             user_id: userId,
             external_account_id: acc.externalId,
             account_name: acc.name,
-            account_number: acc.mask,
+            account_number: finalAccountNumber,
+            routing_number: finalRouting,
+            account_subtype: finalSubtype,
             iban: finalIban,
+            bic: finalBic,
             bacs_account: finalBacs,
             sort_code: finalSortCode,
-            currency: acc.currency,
-            current_balance: acc.currentBalance,
-            available_balance: acc.availableBalance,
+            currency: 'GBP',
+            current_balance: Money.fromPounds(acc.currentBalance || 0).toPence(),
+            available_balance: Money.fromPounds(acc.availableBalance || 0).toPence(),
             last_synced_at: new Date(),
           },
           { transaction: t, conflictFields: ['connection_id', 'external_account_id_hash'] }
@@ -226,7 +262,7 @@ const bankService = {
                   status: txn.pending ? 'pending' : 'settled',
                   category: txn.category ? txn.category[0] : 'Uncategorized',
                   description_encrypted: publicKey ? eciesEncrypt(publicKey, String(txn.name || 'Unknown'), 'finconnect-txn-desc-v1') : null,
-                  amount_encrypted: publicKey ? eciesEncrypt(publicKey, String(Math.round(Math.abs(txn.amount || 0) * 1000)), 'finconnect-txn-amt-v1') : null,
+                  amount_encrypted: publicKey ? eciesEncrypt(publicKey, String(Math.abs(txn.amount || 0)), 'finconnect-txn-amt-v1') : null,
                   transaction_date: txn.date || txn.authorized_date || new Date(),
                 },
                 { transaction: t, conflictFields: ['external_transaction_id_hash'] }
@@ -308,7 +344,7 @@ const bankService = {
         prefetchedPages.push({ conn, firstPage });
       } catch (err) {
         logger.error(`[fullSync] Plaid pre-flight check failed for connection ${conn.id}: ${err.message}`);
-        throw new Error(`Cannot perform full re-sync: Plaid is unavailable for connection ${conn.id}. Transaction history preserved.`);
+        throw new Error(`Cannot perform full re-sync: Plaid is unavailable for connection ${conn.id}. Transaction history preserved.`, { cause: err });
       }
     }
 
@@ -380,7 +416,7 @@ const bankService = {
                     ? eciesEncrypt(publicKey, String(txn.name || 'Unknown'), 'finconnect-txn-desc-v1')
                     : null,
                   amount_encrypted: publicKey
-                    ? eciesEncrypt(publicKey, String(Math.round(Math.abs(txn.amount || 0) * 1000)), 'finconnect-txn-amt-v1')
+                    ? eciesEncrypt(publicKey, String(Math.abs(txn.amount || 0)), 'finconnect-txn-amt-v1')
                     : null,
                   transaction_date: txn.date || txn.authorized_date || new Date(),
                 },
@@ -418,18 +454,29 @@ const bankService = {
   },
 
   /**
-   * Retrieves user's transaction history from our local DB.
+   * Retrieves user's transaction history from our local DB with dynamic pagination.
    */
-  async getTransactions(userId) {
+  async getTransactions(userId, options = {}) {
+    const limit = Math.max(1, Math.min(Number(options.limit) || 50, 500));
+    const offset = Math.max(0, Number(options.offset) || 0);
+
     const accounts = await db.BankAccount.findAll({
       where: { user_id: userId },
       attributes: ['id'],
     });
     const accountIds = accounts.map((a) => a.id);
 
-    if (accountIds.length === 0) return [];
+    if (accountIds.length === 0) {
+      return {
+        transactions: [],
+        totalCount: 0,
+        limit,
+        offset,
+        hasMore: false,
+      };
+    }
 
-    return await db.Transaction.findAll({
+    const { count, rows } = await db.Transaction.findAndCountAll({
       where: { account_id: accountIds },
       include: [
         {
@@ -439,8 +486,63 @@ const bankService = {
         },
       ],
       order: [['transaction_date', 'DESC']],
-      limit: 200,
+      limit,
+      offset,
     });
+
+    return {
+      transactions: rows,
+      totalCount: count,
+      limit,
+      offset,
+      hasMore: offset + rows.length < count,
+    };
+  },
+
+  /**
+   * Revokes and removes a user's bank connection
+   */
+  async disconnectBank(userId, connectionId) {
+    logger.info(`[bankService] Disconnecting bank ${connectionId} for user ${userId}`);
+
+    const connection = await db.BankConnection.findOne({
+      where: { id: connectionId, user_id: userId },
+    });
+
+    if (!connection) {
+      throw new AppError('Bank connection not found', STATUS_CODES.NOT_FOUND);
+    }
+
+    if (connection.access_token) {
+      await bankProvider.removeConnection(connection.access_token);
+    }
+
+    const t = await db.sequelize.transaction();
+    try {
+      await db.BankAccount.destroy({
+        where: { connection_id: connectionId },
+        transaction: t,
+      });
+
+      await connection.destroy({ transaction: t });
+      await t.commit();
+
+      try {
+        await db.AuditLog.create({
+          user_id: userId,
+          action: 'bank_connection_revoked',
+          metadata: { connectionId, bankName: connection.bank_name },
+        });
+      } catch (auditErr) {
+        logger.warn(`[bankService] Audit log warning: ${auditErr.message}`);
+      }
+
+      return true;
+    } catch (error) {
+      await t.rollback();
+      logger.error(`[bankService] Disconnect bank failed: ${error.message}`);
+      throw new AppError('Failed to disconnect bank connection', STATUS_CODES.SERVER_ERROR);
+    }
   },
 };
 

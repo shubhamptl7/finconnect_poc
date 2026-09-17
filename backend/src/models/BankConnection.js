@@ -78,6 +78,14 @@ const defineBankConnection = (sequelize, DataTypes) => {
     }
   );
 
+  BankConnection.prototype.toJSON = function () {
+    const values = { ...this.get() };
+    delete values.access_token;
+    delete values.item_id;
+    delete values.item_id_hash;
+    return values;
+  };
+
   BankConnection.associate = (models) => {
     BankConnection.belongsTo(models.User, { foreignKey: 'user_id', as: 'user' });
     BankConnection.hasMany(models.BankAccount, {

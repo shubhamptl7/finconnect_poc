@@ -6,12 +6,16 @@
  * @param {string} [options.message='Success'] - Success message
  * @param {any} [options.data=null] - Data to send in the response
  */
-export const successResponse = ({ reply, statusCode = 200, message = 'Success', data = null }) => {
-  return reply.status(statusCode).send({
+export const successResponse = ({ reply, statusCode = 200, message = 'Success', data = null, meta = null }) => {
+  const payload = {
     status: 'success',
     message,
     data,
-  });
+  };
+  if (meta !== null) {
+    payload.meta = meta;
+  }
+  return reply.status(statusCode).send(payload);
 };
 
 /**

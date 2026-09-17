@@ -4,6 +4,7 @@ import STATUS_CODES from '../config/constants.js';
 import bankProvider from '../providers/plaid/plaidBankProvider.js';
 import logger from '../config/logger.js';
 import { generateSearchHash } from '../utils/encryption.js';
+import Money from '../utils/money.js';
 
 const paymentService = {
   /**
@@ -12,8 +13,14 @@ const paymentService = {
    * so the frontend can securely authenticate and authorize the payment.
    */
   async initiatePayment(userId, payload, metadata = {}) {
-    const { amount, iban, bacsAccount, sortCode, recipientName, note, accountId, beneficiaryId } =
-      payload;
+    const accountId = payload.accountId || payload.account_id;
+    const beneficiaryId = payload.beneficiaryId || payload.beneficiary_id;
+    const amount = payload.amount;
+    const note = payload.note;
+    const iban = payload.iban || payload.recipient_iban;
+    const bacsAccount = payload.bacsAccount || payload.bacs_account || payload.recipient_bacs_account;
+    const sortCode = payload.sortCode || payload.sort_code || payload.recipient_sort_code;
+    const recipientName = payload.recipientName || payload.recipient_name;
 
     if (!accountId) {
       throw new AppError('Missing required payment fields: accountId', STATUS_CODES.BAD_REQUEST);
@@ -26,12 +33,19 @@ const paymentService = {
       );
     }
 
+    const money = Money.fromPounds(amount);
+
     // 1. Verify the from account belongs to user
     const account = await db.BankAccount.findOne({
       where: { id: accountId, user_id: userId },
       include: [{ model: db.BankConnection, as: 'connection' }],
     });
     if (!account) throw new AppError('Invalid source account', STATUS_CODES.NOT_FOUND);
+
+    const accountBalPence = Number(account.available_balance || account.current_balance || 0);
+    if (money.toPence() > accountBalPence) {
+      throw new AppError('Amount exceeds available account balance', STATUS_CODES.BAD_REQUEST);
+    }
 
     // 2. Resolve Identifier and name — from a saved beneficiary or from manual input
     let resolvedIban = iban;
@@ -116,9 +130,9 @@ const paymentService = {
     // 3. Wrap creation in a DB transaction
     const t = await db.sequelize.transaction();
     try {
-      // 4. Create Plaid Payment Intent
+      // 4. Create Plaid Payment Intent (Plaid requires major unit float value)
       const paymentId = await bankProvider.createPaymentIntent(
-        amount,
+        money.toPounds(),
         recipientData,
         resolvedName,
         note || 'Transfer'
@@ -162,13 +176,13 @@ const paymentService = {
       const institutionId = account.connection ? account.connection.institution_id : null;
       const linkToken = await bankProvider.createPaymentToken(userId, paymentId, institutionId);
 
-      // 7. Store the pending payment (amounts in baisas/cents)
+      // 7. Store the pending payment in integer pence (BIGINT)
       const payment = await db.Payment.create(
         {
           user_id: userId,
           beneficiary_id: beneficiaryRecord.id,
           account_id: account.id,
-          amount: Math.round(Number.parseFloat(amount) * 1000),
+          amount: money.toPence(),
           note: note || null,
           status: 'initiated',
           provider_reference: paymentId,
@@ -219,7 +233,13 @@ const paymentService = {
         {
           model: db.BankAccount,
           as: 'account',
-          include: [{ model: db.BankConnection, as: 'connection' }],
+          include: [
+            {
+              model: db.BankConnection,
+              as: 'connection',
+              attributes: { exclude: ['access_token', 'item_id', 'item_id_hash'] },
+            },
+          ],
         },
       ],
       order: [['created_at', 'DESC']],

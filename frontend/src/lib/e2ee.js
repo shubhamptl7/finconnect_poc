@@ -45,12 +45,13 @@ export function validateRecoveryCode(mnemonic) {
 
 // --- IndexedDB Storage Helpers ---
 
-const DB_NAME = 'payoman_e2ee';
+const DB_NAME = 'finconnect_e2ee';
+const LEGACY_DB_NAME = 'payoman_e2ee';
 const STORE_NAME = 'keys';
 
-async function openDb() {
+async function openDb(name = DB_NAME) {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
+    const request = indexedDB.open(name, 1);
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
@@ -80,24 +81,62 @@ export async function storePrivateKey(cryptoKey, publicKeyJwk = null) {
 
 export async function loadPrivateKey() {
   const db = await openDb();
-  return new Promise((resolve, reject) => {
+  let key = await new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const store = tx.objectStore(STORE_NAME);
     const request = store.get('e2ee_private_key');
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
+
+  // Seamless migration from legacy payoman_e2ee if not found in finconnect_e2ee
+  if (!key && typeof indexedDB !== 'undefined') {
+    try {
+      const legacyDb = await openDb(LEGACY_DB_NAME);
+      key = await new Promise((resolve) => {
+        const tx = legacyDb.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.get('e2ee_private_key');
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      });
+      if (key) {
+        await storePrivateKey(key);
+      }
+    } catch {
+      // Legacy store does not exist or cannot be accessed
+    }
+  }
+
+  return key;
 }
 
 export async function getStoredPublicKeyX() {
   const db = await openDb();
-  return new Promise((resolve, reject) => {
+  let pubX = await new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const store = tx.objectStore(STORE_NAME);
     const request = store.get('e2ee_public_key_x');
     request.onsuccess = () => resolve(request.result || null);
     request.onerror = () => reject(request.error);
   });
+
+  if (!pubX && typeof indexedDB !== 'undefined') {
+    try {
+      const legacyDb = await openDb(LEGACY_DB_NAME);
+      pubX = await new Promise((resolve) => {
+        const tx = legacyDb.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.get('e2ee_public_key_x');
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
+      });
+    } catch {
+      // Ignore
+    }
+  }
+
+  return pubX;
 }
 
 export async function clearPrivateKey() {

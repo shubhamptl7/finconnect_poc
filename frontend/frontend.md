@@ -1,10 +1,10 @@
-# PayOman – Frontend Design Context
+# FinConnect – Frontend Design Context
 
 ## Project Context for AI UI/UX Design Agent
 
 # Project Overview
 
-PayOman is a modern fintech web application being designed for the Sultanate of Oman. The application targets Omani citizens and aims to become a unified financial platform where users can securely manage multiple bank accounts, monitor finances, make payments, and perform everyday banking operations from one beautiful, intuitive interface.
+FinConnect is a modern fintech web application being designed for the Sultanate of Oman. The application targets Omani citizens and aims to become a unified financial platform where users can securely manage multiple bank accounts, monitor finances, make payments, and perform everyday banking operations from one beautiful, intuitive interface.
 
 The current phase of the project is a **Proof of Concept (POC)**. This means the focus is on demonstrating the complete product experience, user journey, and interface rather than implementing real banking infrastructure.
 
@@ -14,7 +14,7 @@ The frontend should look and feel like a premium fintech product that could real
 
 # Product Vision
 
-The vision of PayOman is to simplify financial management.
+The vision of FinConnect is to simplify financial management.
 
 Instead of opening multiple banking applications every day, users should be able to access one modern platform that provides a unified financial experience.
 

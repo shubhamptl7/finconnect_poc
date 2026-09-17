@@ -5,21 +5,30 @@ export function cn(...inputs) {
   return twMerge(clsx(inputs))
 }
 
-export function formatCurrency(amount, currency = 'OMR') {
-  return new Intl.NumberFormat('en-OM', {
+import { formatPence, formatPounds, formatMinor, formatMajor, poundsToPence, penceToPounds } from './currencyFormatters.js'
+
+export { formatPence, formatPounds, formatMinor, formatMajor, poundsToPence, penceToPounds }
+
+export function formatCurrency(amount, currency = 'GBP', opts = {}) {
+  // If opts.isMinor is true, or if called with minor units
+  if (opts.isMinor) {
+    return formatPence(amount);
+  }
+  const num = typeof amount === 'number' ? amount : parseFloat(amount || 0)
+  return new Intl.NumberFormat('en-GB', {
     style: 'currency',
-    currency,
-    minimumFractionDigits: 3,
-    maximumFractionDigits: 3,
-  }).format(amount / 1000) // amount in baisa
+    currency: currency || 'GBP',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(isNaN(num) ? 0 : num)
 }
 
 export function formatNumber(n, opts = {}) {
-  return new Intl.NumberFormat('en-US', opts).format(n)
+  return new Intl.NumberFormat('en-GB', opts).format(n)
 }
 
 export function formatDate(date, opts = {}) {
-  return new Intl.DateTimeFormat('en-OM', {
+  return new Intl.DateTimeFormat('en-GB', {
     dateStyle: 'medium',
     ...opts,
   }).format(new Date(date))
@@ -45,3 +54,14 @@ export function truncate(str, n = 30) {
 export function sleep(ms) {
   return new Promise(r => setTimeout(r, ms))
 }
+
+export function sanitizeLoanApp(app) {
+  if (!app) return null
+  return {
+    ...app,
+    requested_currency: app.requested_currency || 'GBP',
+    purpose: app.purpose || 'Personal Expenses',
+    status: app.status || 'DRAFT',
+  }
+}
+

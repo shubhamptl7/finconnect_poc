@@ -3,8 +3,9 @@ import { usePlaidLink } from 'react-plaid-link';
 import { useApp } from '../store/AppContext';
 import { Button } from './ui';
 import { Building2, Loader2 } from 'lucide-react';
+import { cn } from '../lib/utils';
 
-export default function ConnectBankButton() {
+export default function ConnectBankButton({ className = '', variant = 'primary', size = 'md' }) {
   const { API_URL, fetchBankConnections, fetchBankAccounts, addToast } = useApp();
   const [linkToken, setLinkToken] = useState(null);
   const [isExchanging, setIsExchanging] = useState(false);
@@ -83,12 +84,14 @@ export default function ConnectBankButton() {
     <Button 
       onClick={() => open()} 
       disabled={!ready || isExchanging || isFetchingToken || !linkToken}
-      className="gap-2"
+      variant={variant}
+      size={size}
+      className={cn('gap-2 whitespace-nowrap flex-shrink-0 cursor-pointer font-bold', className)}
     >
       {(isExchanging || isFetchingToken) ? (
-        <Loader2 className="w-4 h-4 animate-spin" />
+        <Loader2 className="w-4 h-4 animate-spin shrink-0" />
       ) : (
-        <Building2 className="w-4 h-4" />
+        <Building2 className="w-4 h-4 shrink-0" />
       )}
       Connect Bank
     </Button>

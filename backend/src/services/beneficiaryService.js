@@ -10,7 +10,7 @@ import { generateSearchHash } from '../utils/encryption.js';
  * WHY THIS EXISTS:
  * Manages the user's address book of payment recipients. Each beneficiary is
  * user-scoped (a user can only read/edit/delete their own). The service also
- * automatically detects if a beneficiary is an internal PayOman user by checking
+ * automatically detects if a beneficiary is an internal FinConnect user by checking
  * if their IBAN matches an existing bank_account in our database, enabling P2P.
  */
 const beneficiaryService = {
@@ -44,7 +44,7 @@ const beneficiaryService = {
     let normalizedIban = null;
     let normalizedBacs = null;
     let normalizedSortCode = null;
-    let internalAccount = null;
+    let internalAccount;
 
     if (iban) {
       normalizedIban = iban.replace(/\s/g, '').toUpperCase();

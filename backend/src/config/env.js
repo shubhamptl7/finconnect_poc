@@ -2,6 +2,7 @@ import path from 'path';
 
 import dotenv from 'dotenv';
 
+dotenv.config({ path: path.resolve(process.cwd(), 'backend/.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 const config = {
@@ -15,10 +16,11 @@ const config = {
   frontend_url: process.env.FRONTEND_URL,
   webhook_url: process.env.WEBHOOK_URL,
   persona_webhook_secret: process.env.PERSONA_WEBHOOK_SECRET,
+  persona_template_id: process.env.PERSONA_TEMPLATE_ID,
 
-  plaid_client_id: process.env.PLAID_CLIENT_ID,
-  plaid_client_secret: process.env.PLAID_CLIENT_SECRET,
-  plaid_env: process.env.PLAID_ENV,
+  plaid_client_id: process.env.PLAID_CLIENT_ID ? process.env.PLAID_CLIENT_ID.trim() : '',
+  plaid_client_secret: process.env.PLAID_CLIENT_SECRET ? process.env.PLAID_CLIENT_SECRET.trim() : '',
+  plaid_env: process.env.PLAID_ENV ? process.env.PLAID_ENV.trim() : 'sandbox',
   
   encryption_key: process.env.ENCRYPTION_KEY,
   search_hash_key: process.env.SEARCH_HASH_KEY,

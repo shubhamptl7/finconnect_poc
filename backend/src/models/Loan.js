@@ -23,6 +23,14 @@ const defineLoan = (sequelize, DataTypes) => {
           key: 'id',
         },
       },
+      bank_account_id: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: {
+          model: 'bank_accounts',
+          key: 'id',
+        },
+      },
       column_loan_id: {
         type: DataTypes.STRING(100),
         allowNull: true,
@@ -108,6 +116,7 @@ const defineLoan = (sequelize, DataTypes) => {
       indexes: [
         { fields: ['user_id'] },
         { fields: ['application_id'] },
+        { fields: ['bank_account_id'] },
         { fields: ['column_loan_id'] },
         { fields: ['status'] },
       ],
@@ -117,8 +126,10 @@ const defineLoan = (sequelize, DataTypes) => {
   Loan.associate = (models) => {
     Loan.belongsTo(models.User, { foreignKey: 'user_id', as: 'user' });
     Loan.belongsTo(models.LoanApplication, { foreignKey: 'application_id', as: 'application' });
+    Loan.belongsTo(models.BankAccount, { foreignKey: 'bank_account_id', as: 'bankAccount' });
     Loan.hasMany(models.LoanPayment, { foreignKey: 'loan_id', as: 'payments' });
-    Loan.hasMany(models.LoanSchedule, { foreignKey: 'loan_id', as: 'schedule' });
+    Loan.hasMany(models.LoanSchedule, { foreignKey: 'loan_id', as: 'schedules' });
+    Loan.hasOne(models.LoanAutopayAuthorization, { foreignKey: 'loan_id', as: 'autopay' });
   };
 
   return Loan;

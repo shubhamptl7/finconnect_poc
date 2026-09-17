@@ -40,15 +40,24 @@ const normalizeError = (error) => {
 const errorHandler = (error, request, reply) => {
   const normalizedError = normalizeError(error);
 
-  request.log.error({
-    message: normalizedError.message,
-    statusCode: normalizedError.statusCode,
-    method: request.method,
-    url: request.url,
-  });
+  if (normalizedError.statusCode >= 500) {
+    request.log.error({
+      message: normalizedError.message,
+      statusCode: normalizedError.statusCode,
+      method: request.method,
+      url: request.url,
+    });
 
-  if (isDevelopment && error.stack) {
-    request.log.error(error.stack);
+    if (isDevelopment && error.stack) {
+      request.log.error(error.stack);
+    }
+  } else {
+    request.log.warn({
+      message: normalizedError.message,
+      statusCode: normalizedError.statusCode,
+      method: request.method,
+      url: request.url,
+    });
   }
 
   return errorResponse({

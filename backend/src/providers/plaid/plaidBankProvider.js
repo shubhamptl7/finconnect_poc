@@ -1,5 +1,6 @@
 import logger from '../../config/logger.js';
 import config from '../../config/env.js';
+import db from '../../models/index.js';
 
 import plaidClient from './plaidClient.js';
 
@@ -8,7 +9,7 @@ import plaidClient from './plaidClient.js';
  *
  * WHY THIS EXISTS:
  * This file implements the "Provider Pattern". Our core business logic should NEVER
- * import 'plaid' directly. If we decide to use an Omani Open Banking API later instead
+ * import 'plaid' directly. If we decide to use an alternate Open Banking API later instead
  * of Plaid, we just write a new provider file. The rest of the app doesn't change.
  *
  * TRADE-OFFS:
@@ -19,25 +20,86 @@ class PlaidBankProvider {
   /**
    * Creates a temporary token needed to open the Plaid Link UI on the frontend.
    */
-  async createLinkToken(userId, clientName = 'PayOman POC') {
+  async createLinkToken(userId, clientName = 'FinConnect') {
     try {
+      // 1. Fetch user from DB to check for existing stored plaid_user_id
+      let plaidUserId = null;
+      let userRecord = null;
+      try {
+        userRecord = await db.User.findByPk(userId);
+        if (userRecord && userRecord.plaid_user_id) {
+          plaidUserId = userRecord.plaid_user_id;
+        }
+      } catch (dbErr) {
+        logger.warn(`Failed to fetch user from DB for Plaid user_id: ${dbErr.message}`);
+      }
+
+      // 2. If no plaid_user_id stored in DB yet, generate via Plaid User API and persist to DB
+      if (!plaidUserId) {
+        try {
+          const userRes = await plaidClient.userCreate({ client_user_id: String(userId) });
+          plaidUserId = userRes.data.user_id;
+          if (userRecord && plaidUserId) {
+            userRecord.plaid_user_id = plaidUserId;
+            await userRecord.save();
+            logger.info(`Persisted new Plaid user_id (${plaidUserId}) for user ${userId}`);
+          }
+        } catch (userErr) {
+          logger.warn(`Plaid userCreate warning: ${userErr.message}`);
+        }
+      }
+
       const request = {
-        user: {
-          client_user_id: String(userId), // Plaid requires a string ID
-        },
+        client_id: config.plaid_client_id,
+        secret: config.plaid_client_secret,
         client_name: clientName,
-        products: ['auth', 'transactions'], // We need balances/account routing numbers + transaction sync
-        // Focus on UK and Europe since Payment Initiation is supported there (USA does not support it)
+        products: ['auth', 'transactions', 'assets', 'income_verification'], // Primary Open Banking, Transaction Sync, Asset Reports & Income Verification
+        optional_products: ['identity', 'liabilities', 'investments', 'signal', 'statements'], // Verified lending underwriting products
+        additional_consented_products: ['investments_auth'], // Pre-collect consent for future investment auth calls
         country_codes: ['GB', 'FR', 'DE', 'IE', 'NL'],
         language: 'en',
         webhook: `${config.webhook_url}/api/v1/webhooks/plaid`, // Used for Transaction syncing webhooks
+        income_verification: {
+          income_source_types: ['bank'],
+          bank_income: {
+            days_requested: 365,
+          },
+        },
+        transactions: {
+          days_requested: 730, // Request up to 2 years (730 days) of historical transaction data
+        },
+        statements: {
+          start_date: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 1 year range
+          end_date: new Date().toISOString().split('T')[0],
+        },
       };
+
+      if (plaidUserId) {
+        request.user_id = plaidUserId;
+      } else {
+        request.user = { client_user_id: String(userId) };
+      }
 
       const response = await plaidClient.linkTokenCreate(request);
       return response.data.link_token;
     } catch (error) {
+      if (error.response?.data) {
+        logger.error(`Plaid createLinkToken detailed error: ${JSON.stringify(error.response.data)}`);
+      }
       logger.error(`Plaid createLinkToken failed: ${error.message}`);
       throw new Error('Failed to generate bank connection token');
+    }
+  }
+
+  async removeConnection(accessToken) {
+    try {
+      if (accessToken) {
+        await plaidClient.itemRemove({ access_token: accessToken });
+      }
+      return true;
+    } catch (error) {
+      logger.warn(`Plaid itemRemove warning: ${error.message}`);
+      return false;
     }
   }
 
@@ -72,9 +134,9 @@ class PlaidBankProvider {
         externalId: acc.account_id,
         name: acc.name,
         mask: acc.mask,
-        currency: acc.balances.iso_currency_code || 'USD',
-        currentBalance: Math.round((acc.balances.current || 0) * 1000),
-        availableBalance: Math.round((acc.balances.available || acc.balances.current || 0) * 1000),
+        currency: acc.balances.iso_currency_code || 'GBP',
+        currentBalance: Number((acc.balances.current || 0).toFixed(2)),
+        availableBalance: Number((acc.balances.available || acc.balances.current || 0).toFixed(2)),
       }));
     } catch (error) {
       logger.error(`Plaid getAccountsAndBalances failed: ${error.message}`);
@@ -87,7 +149,7 @@ class PlaidBankProvider {
    *
    * WHY THIS IS NEEDED:
    * The standard /accounts/balance/get only gives us the masked last-4 digits.
-   * For P2P matching ("does this IBAN belong to a PayOman user?") and for sending
+   * For P2P matching ("does this IBAN belong to a FinConnect user?") and for sending
    * payments, we need the full account identifier. Plaid exposes this via /auth/get.
    *
    * The response contains `numbers.iban` (EU/UK international) or
@@ -103,18 +165,32 @@ class PlaidBankProvider {
       // Build a map: { [plaid_account_id]: { iban, bacsAccount, sortCode } }
       const authMap = {};
 
-      // IBAN numbers (European / UK international format)
-      if (numbers.iban && Array.isArray(numbers.iban)) {
-        for (const item of numbers.iban) {
+      // ACH numbers (US domestic format)
+      if (numbers?.ach && Array.isArray(numbers.ach)) {
+        for (const item of numbers.ach) {
+          authMap[item.account_id] = {
+            ...(authMap[item.account_id] || {}),
+            accountNumber: item.account || null,
+            routingNumber: item.routing || null,
+            wireRouting: item.wire_routing || null,
+          };
+        }
+      }
+
+      // IBAN / International numbers (European / UK international format)
+      const ibanList = numbers?.international || numbers?.iban;
+      if (ibanList && Array.isArray(ibanList)) {
+        for (const item of ibanList) {
           authMap[item.account_id] = {
             ...(authMap[item.account_id] || {}),
             iban: item.iban || null,
+            bic: item.bic || null,
           };
         }
       }
 
       // BACS numbers (UK domestic: sort code + account number)
-      if (numbers.bacs && Array.isArray(numbers.bacs)) {
+      if (numbers?.bacs && Array.isArray(numbers.bacs)) {
         for (const item of numbers.bacs) {
           authMap[item.account_id] = {
             ...(authMap[item.account_id] || {}),
@@ -200,7 +276,7 @@ class PlaidBankProvider {
       // 2. Create Payment using the new recipient
       const paymentResponse = await plaidClient.paymentInitiationPaymentCreate({
         recipient_id: recipientId,
-        reference: reference,
+        reference: String(reference || 'Transfer').replace(/[^a-zA-Z0-9]/g, '').substring(0, 18) || 'Transfer',
         amount: {
           currency: 'GBP', // Sandbox payments default to GBP
           value: Number.parseFloat(amount),
@@ -224,8 +300,10 @@ class PlaidBankProvider {
   async createPaymentToken(userId, paymentId, institutionId = null) {
     try {
       const request = {
+        client_id: config.plaid_client_id,
+        secret: config.plaid_client_secret,
         user: { client_user_id: String(userId) },
-        client_name: 'PayOman POC',
+        client_name: 'FinConnect',
         products: ['payment_initiation'],
         country_codes: ['GB'],
         language: 'en',
@@ -244,6 +322,38 @@ class PlaidBankProvider {
     } catch (error) {
       logger.error(`Plaid createPaymentToken failed: ${error.message}`);
       throw new Error('Failed to generate payment authorization token');
+    }
+  }
+
+  /**
+   * Generates a specific Link Token for a previously created VRP Consent.
+   * The frontend uses this token to open the Plaid Link UI for AutoPay setup.
+   */
+  async createVrpConsentToken(userId, consentId, institutionId = null) {
+    try {
+      const request = {
+        client_id: config.plaid_client_id,
+        secret: config.plaid_client_secret,
+        user: { client_user_id: String(userId) },
+        client_name: 'FinConnect',
+        products: ['payment_initiation'],
+        country_codes: ['GB'],
+        language: 'en',
+        webhook: `${config.webhook_url}/api/v1/webhooks/plaid`,
+        payment_initiation: {
+          consent_id: consentId,
+        },
+      };
+
+      if (institutionId) {
+        request.institution_id = institutionId;
+      }
+
+      const response = await plaidClient.linkTokenCreate(request);
+      return response.data.link_token;
+    } catch (error) {
+      logger.error(`Plaid createVrpConsentToken failed: ${error.message}`);
+      throw new Error('Failed to generate VRP consent authorization token');
     }
   }
 

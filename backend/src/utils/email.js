@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+
 import config from '../config/env.js';
 import logger from '../config/logger.js';
 
@@ -36,6 +37,6 @@ export const sendEmail = async (to, subject, html) => {
     return info;
   } catch (error) {
     logger.error(`Error sending email to ${to}: ${error.message}`);
-    throw new Error('Failed to send email');
+    throw new Error('Failed to send email', { cause: error });
   }
 };

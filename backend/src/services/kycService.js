@@ -1,6 +1,4 @@
 import db from '../models/index.js';
-import AppError from '../utils/appError.js';
-import STATUS_CODES from '../config/constants.js';
 import logger from '../config/logger.js';
 import { generateSearchHash } from '../utils/encryption.js';
 

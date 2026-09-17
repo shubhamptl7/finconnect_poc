@@ -1,4 +1,5 @@
 import bcrypt from 'bcrypt';
+
 import { encrypt, generateSearchHash } from '../utils/encryption.js';
 import { decrypt } from '../utils/decryption.js';
 const defineUser = (sequelize, DataTypes) => {
@@ -112,6 +113,11 @@ const defineUser = (sequelize, DataTypes) => {
       is_email_verified: {
         type: DataTypes.BOOLEAN,
         defaultValue: false,
+      },
+
+      plaid_user_id: {
+        type: DataTypes.STRING(100),
+        allowNull: true,
       },
     },
     {

@@ -121,15 +121,49 @@ export const fullSyncTransactions = async (request, reply) => {
 
 export const getTransactions = async (request, reply) => {
   try {
-    const transactions = await bankService.getTransactions(request.user.id);
+    const { limit = 50, offset = 0, page } = request.query || {};
+    const parsedLimit = Math.max(1, Math.min(Number(limit) || 50, 500));
+    let parsedOffset = Math.max(0, Number(offset) || 0);
+    if (page && !offset) {
+      parsedOffset = (Math.max(1, Number(page)) - 1) * parsedLimit;
+    }
+
+    const result = await bankService.getTransactions(request.user.id, {
+      limit: parsedLimit,
+      offset: parsedOffset,
+    });
 
     return successResponse({
       reply,
       statusCode: STATUS_CODES.OK,
-      data: transactions,
+      data: result.transactions,
+      meta: {
+        totalCount: result.totalCount,
+        limit: result.limit,
+        offset: result.offset,
+        hasMore: result.hasMore,
+        page: Math.floor(result.offset / result.limit) + 1,
+        totalPages: Math.ceil(result.totalCount / result.limit) || 1,
+      },
     });
   } catch (error) {
     logger.error(`getTransactions error: ${error.message}`);
+    throw error;
+  }
+};
+
+export const disconnectBank = async (request, reply) => {
+  try {
+    const { id } = request.params;
+    await bankService.disconnectBank(request.user.id, id);
+
+    return successResponse({
+      reply,
+      statusCode: STATUS_CODES.OK,
+      message: 'Bank connection successfully revoked',
+    });
+  } catch (error) {
+    logger.error(`disconnectBank error: ${error.message}`);
     throw error;
   }
 };

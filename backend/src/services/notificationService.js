@@ -1,6 +1,7 @@
 import db from '../models/index.js';
-import websocketService from './websocketService.js';
 import logger from '../config/logger.js';
+
+import websocketService from './websocketService.js';
 
 const notificationService = {
   /**

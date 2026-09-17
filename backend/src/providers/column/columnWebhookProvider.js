@@ -5,7 +5,7 @@ import logger from '../../config/logger.js';
  * Responsible for verifying and parsing event payloads received from Column Sandbox/Production webhooks.
  */
 const columnWebhookProvider = {
-  verifySignature(headers, rawBody, webhookSecret) {
+  verifySignature(_headers, _rawBody, _webhookSecret) {
     logger.info('[ColumnWebhookProvider] Stub verifySignature');
     return true;
   },

@@ -11,7 +11,8 @@ const definePayment = (sequelize, DataTypes) => {
         primaryKey: true,
       },
       amount: {
-        type: DataTypes.INTEGER, // Changed to INTEGER to reflect actual usage in baisas/cents, and nullable for E2EE window
+        // Integer minor units (pence)
+        type: DataTypes.BIGINT,
         allowNull: true,
       },
       amount_encrypted: {
@@ -57,7 +58,7 @@ const definePayment = (sequelize, DataTypes) => {
         allowNull: true,
       },
       is_internal: {
-        // WHY: When true, this payment was settled internally (P2P within PayOman).
+        // WHY: When true, this payment was settled internally (P2P within FinConnect).
         // The sender's balance is debited and the recipient's balance is credited directly,
         // without waiting for Plaid's webhook (since it's simulated internally).
         type: DataTypes.BOOLEAN,

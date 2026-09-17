@@ -45,7 +45,7 @@ export const verifyPersonaSignature = (signatureHeader, rawBody) => {
 
     // Use constant-time comparison
     return crypto.timingSafeEqual(Buffer.from(v1), Buffer.from(expectedSignature));
-  } catch (error) {
+  } catch (_error) {
     return false;
   }
 };

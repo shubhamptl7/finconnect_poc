@@ -1,4 +1,7 @@
 import crypto from 'crypto';
+
+import { Op } from 'sequelize';
+
 import db from '../models/index.js';
 import AppError from '../utils/appError.js';
 import STATUS_CODES from '../config/constants.js';
@@ -6,7 +9,6 @@ import { getEmailHTML } from '../utils/templateUtils.js';
 import { sendEmail } from '../utils/email.js';
 import { generateSearchHash } from '../utils/encryption.js';
 import config from '../config/env.js';
-import { Op } from 'sequelize';
 import logger from '../config/logger.js';
 
 const authService = {
@@ -46,7 +48,7 @@ const authService = {
       url: verificationUrl
     });
     
-    await sendEmail(newUser.email, 'Verify your email for PayOman', emailHtml);
+    await sendEmail(newUser.email, 'Verify your email for FinConnect', emailHtml);
 
     await db.AuditLog.create({
       user_id: newUser.id,
@@ -88,7 +90,7 @@ const authService = {
         url: verificationUrl
       });
       
-      await sendEmail(user.email, 'Verify your email for PayOman', emailHtml);
+      await sendEmail(user.email, 'Verify your email for FinConnect', emailHtml);
 
       await db.AuditLog.create({ user_id: user.id, action: 'user_login_blocked_unverified', metadata });
 
@@ -171,6 +173,7 @@ const authService = {
     });
 
     const resetUrl = `${config.frontend_url}/auth/reset-password/${token}`;
+    logger.info(`[PASSWORD RESET] Generated reset link for ${user.email}: ${resetUrl}`);
     const emailHtml = await getEmailHTML('password_reset', {
       name: user.name,
       url: resetUrl

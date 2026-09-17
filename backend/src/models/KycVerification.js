@@ -51,7 +51,7 @@ const defineKycVerification = (sequelize, DataTypes) => {
           if (!raw) return raw;
           try {
             return JSON.parse(decrypt(raw));
-          } catch (e) {
+          } catch (_e) {
             return null;
           }
         },

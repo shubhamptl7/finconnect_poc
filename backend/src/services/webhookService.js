@@ -3,6 +3,7 @@ import { Op } from 'sequelize';
 import db from '../models/index.js';
 import logger from '../config/logger.js';
 import { generateSearchHash, eciesEncrypt } from '../utils/encryption.js';
+import Money from '../utils/money.js';
 
 const webhookService = {
   async processPlaidWebhook(payload) {
@@ -29,7 +30,7 @@ const webhookService = {
             return;
           }
 
-          let internalStatus = payment.status; // keep current if unmapped
+          let internalStatus;
           if (newStatus === 'PAYMENT_STATUS_EXECUTED' || newStatus === 'PAYMENT_STATUS_SETTLED') {
             internalStatus = 'settled';
           } else if (
@@ -83,7 +84,18 @@ const webhookService = {
         if (this._pendingSettlement) {
           const paymentToSettle = this._pendingSettlement;
           this._pendingSettlement = null;
-          await this._settlePayment(paymentToSettle);
+          try {
+            await this._settlePayment(paymentToSettle);
+          } catch (settleError) {
+            logger.error(
+              `[Webhook] Settlement processing failed for payment ${paymentToSettle.id}: ${settleError.message}`
+            );
+            // Revert payment status to settlement_failed so retries can re-attempt ledger updates
+            await db.Payment.update(
+              { status: 'settlement_failed' },
+              { where: { id: paymentToSettle.id } }
+            );
+          }
         }
       }
     }
@@ -113,7 +125,7 @@ const webhookService = {
    * Settles a payment by:
    * 1. Writing a debit transaction to the sender's ledger.
    * 2. Decrementing the sender's balance.
-   * 3. (P2P Engine) Checking if the recipient's IBAN belongs to another PayOman user.
+   * 3. (P2P Engine) Checking if the recipient's IBAN belongs to another FinConnect user.
    *    If so, incrementing their balance and injecting a credit transaction for them.
    *
    * WHY THIS WORKS:
@@ -140,10 +152,12 @@ const webhookService = {
         payment.note ||
         `Transfer to ${payment.recipient_name || payment.beneficiary?.name || 'Beneficiary'}`;
 
-      const amountStr = String(payment.amount);
+      const amountPence = Number(payment.amount || 0);
+      const money = Money.fromPence(amountPence);
+      const amountMajorStr = money.toPounds().toFixed(2);
 
       const descriptionEnc = senderPublicKey ? eciesEncrypt(senderPublicKey, description, 'finconnect-txn-desc-v1') : null;
-      const amountEnc = senderPublicKey ? eciesEncrypt(senderPublicKey, amountStr, 'finconnect-txn-amt-v1') : null;
+      const amountEnc = senderPublicKey ? eciesEncrypt(senderPublicKey, amountMajorStr, 'finconnect-txn-amt-v1') : null;
 
       // 1. Debit transaction for sender
       await db.Transaction.upsert(
@@ -161,9 +175,9 @@ const webhookService = {
         { transaction: t }
       );
 
-      // 2. Decrement sender balance
+      // 2. Decrement sender balance in integer pence
       await db.BankAccount.decrement(['current_balance', 'available_balance'], {
-        by: payment.amount,
+        by: amountPence,
         where: { id: payment.account_id },
         transaction: t,
       });
@@ -201,9 +215,9 @@ const webhookService = {
           `[P2P] Recipient found! Account ${recipientAccount.id} belongs to User ${recipientAccount.user_id}`
         );
 
-        // 3a. Credit the recipient's balance
+        // 3a. Credit the recipient's balance in integer pence
         await db.BankAccount.increment(['current_balance', 'available_balance'], {
-          by: payment.amount,
+          by: amountPence,
           where: { id: recipientAccount.id },
           transaction: t,
         });
@@ -212,11 +226,11 @@ const webhookService = {
         const recipientPublicKey = recipientUser?.e2ee_public_key;
 
         const creditDescription = payment.note
-          ? `Transfer from ${senderUser?.name || 'PayOman User'} - ${payment.note}`
-          : `Transfer from ${senderUser?.name || 'PayOman User'}`;
+          ? `Transfer from ${senderUser?.name || 'FinConnect User'} - ${payment.note}`
+          : `Transfer from ${senderUser?.name || 'FinConnect User'}`;
 
         const creditDescEnc = recipientPublicKey ? eciesEncrypt(recipientPublicKey, creditDescription, 'finconnect-txn-desc-v1') : null;
-        const creditAmountEnc = recipientPublicKey ? eciesEncrypt(recipientPublicKey, amountStr, 'finconnect-txn-amt-v1') : null;
+        const creditAmountEnc = recipientPublicKey ? eciesEncrypt(recipientPublicKey, amountMajorStr, 'finconnect-txn-amt-v1') : null;
 
         // 3b. Inject a credit transaction into the recipient's feed
         await db.Transaction.upsert(
@@ -237,13 +251,13 @@ const webhookService = {
         // 3c. Mark the payment as internal
         await payment.update({ is_internal: true }, { transaction: t });
 
-        // 3d. Notification for the recipient (optional but nice UX)
+        // 3d. Notification for the recipient
         const { default: notificationService } = await import('./notificationService.js');
         await notificationService.createNotification(
           {
             user_id: recipientAccount.user_id,
             title: 'Money Received!',
-            message: `You received ${(payment.amount / 1000).toFixed(3)} GBP from ${senderUser?.name || 'a PayOman user'}.`,
+            message: `You received ${money.toFormatted()} from ${senderUser?.name || 'a FinConnect user'}.`,
             type: 'transaction'
           },
           { transaction: t }
@@ -251,14 +265,14 @@ const webhookService = {
 
 
         logger.info(
-          `[P2P] Internal transfer complete: ${payment.amount} credited to Account ${recipientAccount.id}`
+          `[P2P] Internal transfer complete: ${amountPence} pence credited to Account ${recipientAccount.id}`
         );
       } else {
         logger.info(`[P2P] No internal recipient found — external transfer only.`);
       }
 
       // 4. Encrypt payment fields to close the plaintext processing window
-      const pmtAmountEnc = senderPublicKey ? eciesEncrypt(senderPublicKey, amountStr, 'finconnect-pmt-amt-v1') : null;
+      const pmtAmountEnc = senderPublicKey ? eciesEncrypt(senderPublicKey, amountMajorStr, 'finconnect-pmt-amt-v1') : null;
       const pmtNoteEnc = senderPublicKey ? eciesEncrypt(senderPublicKey, payment.note || '', 'finconnect-pmt-note-v1') : null;
       const pmtRecipientNameEnc = senderPublicKey ? eciesEncrypt(senderPublicKey, payment.recipient_name || '', 'finconnect-pmt-rname-v1') : null;
 

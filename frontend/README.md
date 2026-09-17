@@ -1,6 +1,6 @@
-# PayOman – Frontend
+# FinConnect – Frontend
 
-Premium fintech frontend for the Sultanate of Oman.
+Enterprise Open Banking platform interface.
 
 ## Stack
 - React 18 + Vite 5

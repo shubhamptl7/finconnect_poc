@@ -1,4 +1,4 @@
-import loanPaymentService from '../../services/loanPaymentService.js';
+import { loanService } from '../../services/loan/index.js';
 import STATUS_CODES from '../../config/constants.js';
 import { successResponse } from '../../utils/response.js';
 import logger from '../../config/logger.js';
@@ -7,7 +7,7 @@ export const processPayment = async (request, reply) => {
   try {
     const { id } = request.params;
     const { amount } = request.body;
-    const payment = await loanPaymentService.processPayment(id, amount);
+    const payment = await loanService.processPayment(id, amount);
     return successResponse({
       reply,
       statusCode: STATUS_CODES.ACCEPTED,

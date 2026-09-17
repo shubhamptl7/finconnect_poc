@@ -6,6 +6,7 @@ import { KeyRound, AlertTriangle, ShieldCheck, Copy, Check, ShieldAlert, ArrowLe
 
 export default function RecoveryCodeScreen() {
   const { 
+    user,
     pendingRecoverySecrets, 
     pendingPrimarySecretOnly,
     pendingRecoveryCode, 
@@ -24,6 +25,12 @@ export default function RecoveryCodeScreen() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Do not block admin routes or admin role users with user-vault E2EE unlock modal
+  const isAdminPath = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
+  if (isAdminPath || user?.role === 'admin') {
+    return null;
+  }
+
   const handleCopy = async (text, keyName) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -36,7 +43,7 @@ export default function RecoveryCodeScreen() {
 
   const handleCopyAll = async () => {
     if (!pendingRecoverySecrets) return;
-    const text = `PAYOMAN E2EE RECOVERY SECRETS\n\n` +
+    const text = `FINCONNECT E2EE RECOVERY SECRETS\n\n` +
       `PRIMARY RECOVERY SECRET (Reusable):\n${pendingRecoverySecrets.primary}\n\n` +
       `EMERGENCY RECOVERY CODE #1 (Single-Use):\n${pendingRecoverySecrets.emergency1}\n\n` +
       `EMERGENCY RECOVERY CODE #2 (Single-Use):\n${pendingRecoverySecrets.emergency2}\n`;
@@ -161,7 +168,7 @@ export default function RecoveryCodeScreen() {
               {pendingRecoverySecrets && (
                 <button
                   onClick={handleCopyAll}
-                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 border border-indigo-100 cursor-pointer"
+                  className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100 cursor-pointer"
                 >
                   {copiedKey === 'all' ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
                   {copiedKey === 'all' ? 'Copied All Secrets' : 'Copy All Secrets'}
@@ -233,7 +240,7 @@ export default function RecoveryCodeScreen() {
             <div className="pt-3">
               <button 
                 onClick={completeRecoveryBackup}
-                className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white px-4 py-3 rounded-xl hover:bg-indigo-700 transition-colors font-semibold shadow-sm shadow-indigo-200 cursor-pointer text-sm"
+                className="w-full flex items-center justify-center gap-2 bg-emerald-600 text-white px-4 py-3 rounded-xl hover:bg-emerald-700 transition-colors font-semibold shadow-sm shadow-emerald-200 cursor-pointer text-sm"
               >
                 <ShieldCheck className="h-5 w-5" />
                 I have securely saved these recovery secrets
@@ -305,7 +312,7 @@ export default function RecoveryCodeScreen() {
         <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
           <div className="p-8 text-center">
             <div className={`inline-flex items-center justify-center p-4 rounded-full mb-4 ${
-              isEmergencyMode ? 'bg-amber-50 text-amber-600' : 'bg-indigo-50 text-indigo-600'
+              isEmergencyMode ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'
             }`}>
               {isEmergencyMode ? <ShieldAlert className="h-8 w-8" /> : <KeyRound className="h-8 w-8" />}
             </div>
@@ -332,7 +339,7 @@ export default function RecoveryCodeScreen() {
                   className={`w-full px-4 py-3 rounded-xl border outline-none transition-shadow text-center font-mono text-sm resize-none ${
                     isEmergencyMode 
                       ? 'border-amber-300 focus:ring-2 focus:ring-amber-500' 
-                      : 'border-gray-300 focus:ring-2 focus:ring-indigo-500'
+                      : 'border-gray-300 focus:ring-2 focus:ring-emerald-500'
                   }`}
                 />
                 <div className="flex justify-between items-center mt-1 px-1">
@@ -352,7 +359,7 @@ export default function RecoveryCodeScreen() {
                 className={`w-full flex items-center justify-center px-4 py-3 rounded-xl text-white font-medium shadow-sm transition-colors cursor-pointer disabled:opacity-50 ${
                   isEmergencyMode
                     ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200'
-                    : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'
+                    : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200'
                 }`}
               >
                 {loading ? 'Decrypting...' : (isEmergencyMode ? 'Recover with Emergency Code' : 'Unlock Data')}
@@ -363,7 +370,7 @@ export default function RecoveryCodeScreen() {
                   <button
                     type="button"
                     onClick={() => { setIsEmergencyMode(false); setError(''); setInputCode(''); }}
-                    className="text-xs font-medium text-gray-500 hover:text-indigo-600 transition-colors flex items-center justify-center gap-1 mx-auto cursor-pointer"
+                    className="text-xs font-medium text-gray-500 hover:text-emerald-600 transition-colors flex items-center justify-center gap-1 mx-auto cursor-pointer"
                   >
                     <ArrowLeft size={14} /> Back to Primary Recovery
                   </button>

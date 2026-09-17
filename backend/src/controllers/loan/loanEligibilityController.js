@@ -1,4 +1,4 @@
-import loanEligibilityService from '../../services/loanEligibilityService.js';
+import { loanEligibilityService } from '../../services/loan/index.js';
 import STATUS_CODES from '../../config/constants.js';
 import { successResponse } from '../../utils/response.js';
 import logger from '../../config/logger.js';

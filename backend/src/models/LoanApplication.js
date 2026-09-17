@@ -15,6 +15,14 @@ const defineLoanApplication = (sequelize, DataTypes) => {
           key: 'id',
         },
       },
+      bank_account_id: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: {
+          model: 'bank_accounts',
+          key: 'id',
+        },
+      },
       application_number: {
         type: DataTypes.STRING(50),
         allowNull: false,
@@ -27,7 +35,7 @@ const defineLoanApplication = (sequelize, DataTypes) => {
       },
       requested_currency: {
         type: DataTypes.STRING(3),
-        defaultValue: 'USD',
+        defaultValue: 'GBP',
         allowNull: false,
       },
       requested_tenure_months: {
@@ -59,6 +67,7 @@ const defineLoanApplication = (sequelize, DataTypes) => {
           'VERIFICATION_PENDING',
           'VERIFIED',
           'UNDERWRITING',
+          'ADMIN_REVIEW_PENDING',
           'APPROVED',
           'REJECTED',
           'OFFER_GENERATED',
@@ -85,6 +94,38 @@ const defineLoanApplication = (sequelize, DataTypes) => {
         type: DataTypes.ENUM('PENDING', 'APPROVED', 'REJECTED', 'MANUAL_REVIEW'),
         defaultValue: 'PENDING',
         allowNull: false,
+      },
+      verified_monthly_income: {
+        type: DataTypes.BIGINT,
+        allowNull: true,
+      },
+      verified_monthly_debt: {
+        type: DataTypes.BIGINT,
+        allowNull: true,
+      },
+      verified_dti_bps: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      },
+      system_recommendation: {
+        type: DataTypes.ENUM('RECOMMENDED_APPROVE', 'RECOMMENDED_REJECT', 'MANUAL_REVIEW'),
+        allowNull: true,
+      },
+      system_recommendation_reason: {
+        type: DataTypes.STRING(500),
+        allowNull: true,
+      },
+      approved_by_admin_id: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: {
+          model: 'users',
+          key: 'id',
+        },
+      },
+      admin_notes: {
+        type: DataTypes.TEXT,
+        allowNull: true,
       },
       column_entity_id: {
         type: DataTypes.STRING(100),
@@ -117,6 +158,7 @@ const defineLoanApplication = (sequelize, DataTypes) => {
 
   LoanApplication.associate = (models) => {
     LoanApplication.belongsTo(models.User, { foreignKey: 'user_id', as: 'user' });
+    LoanApplication.belongsTo(models.BankAccount, { foreignKey: 'bank_account_id', as: 'bankAccount' });
     LoanApplication.hasOne(models.LoanOffer, { foreignKey: 'application_id', as: 'offer' });
     LoanApplication.hasOne(models.Loan, { foreignKey: 'application_id', as: 'loan' });
     LoanApplication.hasMany(models.LoanVerification, {

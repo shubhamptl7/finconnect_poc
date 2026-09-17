@@ -1,6 +1,6 @@
 import * as AuditController from '../../controllers/admin/auditController.js';
 import { authenticate, requireRole } from '../../middlewares/auth.js';
 
-export default async function adminAuditRoutes(fastify, options) {
+export default async function adminAuditRoutes(fastify, _options) {
   fastify.get('/', { preHandler: [authenticate, requireRole('admin')] }, AuditController.getAllLogs);
 }

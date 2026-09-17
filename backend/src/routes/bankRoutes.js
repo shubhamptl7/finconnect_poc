@@ -32,4 +32,7 @@ export default async function bankRoutes(fastify, _opts) {
 
   // Get Transactions
   fastify.get('/transactions', { preHandler: authenticate }, BankController.getTransactions);
+
+  // Disconnect / Revoke Bank Connection
+  fastify.delete('/connections/:id', { preHandler: authenticate }, BankController.disconnectBank);
 }

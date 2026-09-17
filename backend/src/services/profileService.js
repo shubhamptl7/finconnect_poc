@@ -104,7 +104,7 @@ const profileService = {
         backupData = typeof user.e2ee_key_backup === 'string'
           ? JSON.parse(user.e2ee_key_backup)
           : user.e2ee_key_backup;
-      } catch (e) {
+      } catch (_e) {
         throw new AppError('Invalid key backup format on server', STATUS_CODES.SERVER_ERROR);
       }
 

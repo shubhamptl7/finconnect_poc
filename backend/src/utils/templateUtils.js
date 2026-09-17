@@ -1,6 +1,8 @@
-import ejs from 'ejs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+
+import ejs from 'ejs';
+
 import logger from '../config/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -19,6 +21,6 @@ export const getEmailHTML = async (templateName, data) => {
     return html;
   } catch (error) {
     logger.error(`Error compiling email template ${templateName}: ${error.message}`);
-    throw new Error('Failed to generate email content');
+    throw new Error('Failed to generate email content', { cause: error });
   }
 };

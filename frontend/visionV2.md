@@ -1,15 +1,15 @@
-# PayOman Frontend Design Context v2
+# FinConnect Frontend Design Context v2
 
 > **Purpose:** This document provides complete product and UI/UX context
 > for AI coding assistants (Antigravity IDE, Cursor, Claude Code,
 > Windsurf, GitHub Copilot) to design only the **frontend** of the
-> PayOman application.
+> FinConnect application.
 
 ------------------------------------------------------------------------
 
 # Project Overview
 
-PayOman is a modern **Open Banking financial platform** designed for the
+FinConnect is a modern **Open Banking financial platform** designed for the
 Sultanate of Oman. It is **not a digital bank** and **does not replace
 existing banks**. Instead, it acts as a secure financial hub that
 connects users to their existing bank accounts through Open Banking
@@ -32,12 +32,12 @@ The objective of the frontend is to communicate:
 
 # Product Identity
 
-PayOman is an **Open Banking Platform**.
+FinConnect is an **Open Banking Platform**.
 
 Banks continue to: - Hold customer money - Execute transactions -
 Maintain account records
 
-PayOman provides: - Unified financial dashboard - Connected bank
+FinConnect provides: - Unified financial dashboard - Connected bank
 management - Account aggregation - Transaction history - Beneficiary
 management - Payment initiation - Financial insights - Secure user
 experience
