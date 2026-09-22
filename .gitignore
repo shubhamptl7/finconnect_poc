@@ -13,6 +13,7 @@ docs/
 .env.test.local
 .env.production.local
 .env.*.local
+.serena
 
 # Logs
 logs/

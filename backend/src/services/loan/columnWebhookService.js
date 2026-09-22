@@ -45,7 +45,12 @@ const columnWebhookService = {
     try {
       const hmac = crypto.createHmac('sha256', webhookSecret);
       const computedSignature = hmac.update(typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody)).digest('hex');
-      return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(computedSignature));
+      const sigBuf = Buffer.from(signature);
+      const compBuf = Buffer.from(computedSignature);
+      if (sigBuf.length !== compBuf.length) {
+        return false;
+      }
+      return crypto.timingSafeEqual(sigBuf, compBuf);
     } catch (err) {
       logger.error(`[ColumnWebhookService] Signature verification error: ${err.message}`);
       return false;
@@ -83,7 +88,7 @@ const columnWebhookService = {
     logger.info(`[ColumnWebhookService] Processing event ${eventId} of type ${eventType}`);
 
     // Atomic idempotency check in Postgres via LoanWebhookEvent
-    let webhookRecord = null;
+    let webhookRecord;
     let transaction = null;
     try {
       transaction = await db.sequelize.transaction();
@@ -122,7 +127,6 @@ const columnWebhookService = {
       ) {
         const columnLoanId = eventData.loan_id || eventData.loanId;
         const bankAccountId = eventData.bank_account_id || eventData.bankAccountId;
-        const transferId = eventData.id || eventData.transfer_id;
 
         logger.info(`[ColumnWebhookService] Settlement event for Column Loan ${columnLoanId} / BankAccount ${bankAccountId}`);
 
@@ -138,8 +142,6 @@ const columnWebhookService = {
         }
 
         if (loan) {
-          const isFirstDisbursement = loan.disbursement_status !== 'COMPLETED';
-
           loan.disbursement_status = 'COMPLETED';
           loan.status = 'ACTIVE';
           loan.last_synced_at = new Date();

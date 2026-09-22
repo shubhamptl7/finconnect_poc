@@ -1,13 +1,15 @@
-import db from '../../models/index.js';
-import AppError from '../../utils/appError.js';
 import STATUS_CODES from '../../config/constants.js';
 import logger from '../../config/logger.js';
+import db from '../../models/index.js';
 import columnBankProvider from '../../providers/column/columnBankProvider.js';
+import columnClient from '../../providers/column/columnClient.js';
 import columnLoanProvider from '../../providers/column/columnLoanProvider.js';
 import columnWireProvider from '../../providers/column/columnWireProvider.js';
-import columnClient from '../../providers/column/columnClient.js';
-import { loanScheduleService } from './loanScheduleService.js';
+import AppError from '../../utils/appError.js';
 import { eciesEncrypt, generateSearchHash } from '../../utils/encryption.js';
+import liveFxService from '../liveFxService.js';
+
+import { loanScheduleService } from './loanScheduleService.js';
 
 const loanOriginationService = {
   /**
@@ -16,10 +18,16 @@ const loanOriginationService = {
    * @param {string} userId Borrower user ID
    * @param {string} applicationId Loan application UUID
    * @param {string} offerId Loan offer UUID
+   * @param {Object|string} [options] Options or consentId
    * @returns {Promise<Object>} { application, offer, loan, wireTransfer }
    */
-  async acceptOfferAndOriginate(userId, applicationId, offerId) {
+  async acceptOfferAndOriginate(userId, applicationId, offerId, options = {}) {
     logger.info(`[loanOriginationService] User ${userId} accepting offer ${offerId} for app ${applicationId}`);
+
+    const consentId = typeof options === 'string' ? options : (options?.consentId || options?.consent_id || null);
+    if (!consentId && process.env.ENFORCE_AUTOPAY_AT_ACCEPTANCE !== 'false') {
+      throw new AppError('Repayment mandate (AutoPay) must be authorized with your bank before loan funds can be disbursed.', STATUS_CODES.BAD_REQUEST);
+    }
 
     const application = await db.LoanApplication.findOne({
       where: { id: applicationId, user_id: userId },
@@ -120,9 +128,10 @@ const loanOriginationService = {
         }, `fx-quote:${idempotencyPrefix}`);
         usdPrincipalCents = Number(fxQuote.source_amount);
       } catch (fxErr) {
-        logger.warn(`Column FX quote API failed: ${fxErr.message}. Simulating USD equivalent.`);
-        const simulatedFxRate = 1.30;
-        usdPrincipalCents = Math.round(wireAmountCents * simulatedFxRate);
+        logger.warn(`Column FX quote API failed: ${fxErr.message}. Fetching real-time live FX rate via liveFxService.`);
+        const liveRate = await liveFxService.getExchangeRate(targetCurrency, 'USD');
+        usdPrincipalCents = Math.round(wireAmountCents * liveRate);
+        logger.info(`[LOAN_ORIGINATION_STAGE_2] Converted ${wireAmountCents} ${targetCurrency} cents -> ${usdPrincipalCents} USD cents at live rate ${liveRate}`);
       }
     }
 
@@ -134,7 +143,7 @@ const loanOriginationService = {
         principal_amount: usdPrincipalCents,
         interest_rate_bps: Number(offer.interest_rate_bps),
         term_months: Number(offer.tenure_months),
-        loan_program_id: process.env.COLUMN_LOAN_PROGRAM_ID || 'lp_personal_unsecured_v1',
+        ...(process.env.COLUMN_LOAN_PROGRAM_ID ? { loan_program_id: process.env.COLUMN_LOAN_PROGRAM_ID } : {}),
       },
       `loan-create:${idempotencyPrefix}`
     );
@@ -144,7 +153,7 @@ const loanOriginationService = {
     const startDate = new Date();
     const maturityDate = new Date();
     maturityDate.setMonth(maturityDate.getMonth() + Number(offer.tenure_months));
-    
+
     let loanRecord = existingLoan || await db.Loan.findOne({
       where: { application_id: applicationId },
     });
@@ -234,7 +243,7 @@ const loanOriginationService = {
 
     // ─── STAGE 7: Local Postgres State Machine & Read-Model ────────────
     logger.info(`[LOAN_ORIGINATION_STAGE_7] Finalizing local PostgreSQL Loan read-model for Application ${applicationId}`);
-    
+
     loanRecord.column_funding_bank_account_id = fundingAccount.id;
     loanRecord.column_collection_bank_account_id = collectionAccount.id;
     loanRecord.status = 'ACTIVE';
@@ -265,11 +274,42 @@ const loanOriginationService = {
     application.status = 'DISBURSED';
     await application.save();
 
+    // ─── STAGE 8: Activate AutoPay Mandate Record ────────────────────────
+    if (consentId) {
+      try {
+        const safeMonthlyLimit = Number(offer.estimated_emi || 0) + 500;
+        let auth = await db.LoanAutopayAuthorization.findOne({
+          where: { plaid_authorization_id: consentId },
+        });
+        if (auth) {
+          auth.loan_id = loanRecord.id;
+          auth.status = 'ACTIVE';
+          auth.authorized_at = new Date();
+          await auth.save();
+        } else {
+          await db.LoanAutopayAuthorization.create({
+            loan_id: loanRecord.id,
+            user_id: userId,
+            plaid_authorization_id: consentId,
+            plaid_account_id: bankAccount.external_account_id || null,
+            amount: safeMonthlyLimit,
+            currency: 'GBP',
+            frequency: 'MONTHLY',
+            status: 'ACTIVE',
+            authorized_at: new Date(),
+          });
+        }
+        logger.info(`[loanOriginationService] AutoPay Mandate activated for Loan ${loanRecord.id} with VRP consent ${consentId}`);
+      } catch (authErr) {
+        logger.error(`[loanOriginationService] Failed to record AutoPay authorization: ${authErr.message}`);
+      }
+    }
+
     // Credit borrower's linked BankAccount balance instantly upon loan origination disbursement
     if (bankAccount) {
       const approvedPence = Number(offer.approved_amount || 0);
       const creditPounds = (approvedPence / 100).toFixed(2);
-      
+
       // Atomic increment in integer pence
       await bankAccount.increment({
         current_balance: approvedPence,
@@ -277,6 +317,24 @@ const loanOriginationService = {
       });
       await bankAccount.reload();
       logger.info(`[loanOriginationService] Atomically credited ${approvedPence} pence to BankAccount ${bankAccount.id}. New Balance: ${bankAccount.current_balance}`);
+
+      // Broadcast real-time balance update to borrower
+      try {
+        const { default: websocketService } = await import('../websocketService.js');
+        websocketService.sendToUser(userId, {
+          type: 'BALANCE_UPDATED',
+          data: {
+            accountId: bankAccount.id,
+            currentBalance: Number(bankAccount.current_balance),
+            availableBalance: Number(bankAccount.available_balance),
+            changeType: 'CREDIT',
+            amount: approvedPence,
+            reason: 'LOAN_DISBURSEMENT',
+          },
+        });
+      } catch (wsErr) {
+        logger.warn(`[loanOriginationService] WS balance broadcast error: ${wsErr.message}`);
+      }
 
       // Inject disbursement transaction record into bank account history
       try {
@@ -304,14 +362,34 @@ const loanOriginationService = {
       }
     }
 
+    // Send Real-Time Loan Disbursed Notification
+    try {
+      const { default: notificationService } = await import('../notificationService.js');
+      const disbursedPounds = (Number(offer.approved_amount) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2 });
+      await notificationService.createNotification({
+        user_id: userId,
+        title: 'Loan Funds Disbursed',
+        message: `£${disbursedPounds} has been disbursed directly into your ${bankAccount.account_name || 'designated bank account'}. Your first EMI is scheduled as agreed.`,
+        type: 'loan',
+        action_url: `/app/emi/${applicationId}`,
+        metadata: {
+          applicationId,
+          loanId: loanRecord.id,
+          amount: offer.approved_amount,
+          bankAccountId: bankAccount.id,
+        },
+      });
+    } catch (notifErr) {
+      logger.warn(`[loanOriginationService] Notification error: ${notifErr.message}`);
+    }
+
     // Audit Log Entry
     try {
       await db.AuditLog.create({
         user_id: userId,
-        action: 'LOAN_OFFER_ACCEPTED_AND_ORIGINATED',
+        action: 'LOAN_ORIGINATED_AND_DISBURSED',
         metadata: {
           applicationId,
-          offerId,
           loanId: loanRecord.id,
           columnLoanId: columnLoan.id,
           columnEntityId: columnEntity.id,

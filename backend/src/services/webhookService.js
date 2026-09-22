@@ -15,6 +15,8 @@ const webhookService = {
         const paymentId = payload.payment_id;
         const newStatus = payload.new_payment_status; // e.g., PAYMENT_STATUS_EXECUTED
 
+        let paymentToSettle = null;
+
         // SECURITY FIX: Wrap the entire status check + settlement in a single transaction
         // with a row-level lock (SELECT FOR UPDATE). This prevents duplicate webhooks from
         // triggering double settlement (double debit + double P2P credit).
@@ -75,15 +77,13 @@ const webhookService = {
           // If the payment just successfully executed, settle it (debit sender, credit recipient P2P)
           // Done AFTER the lock is committed to avoid nested transaction issues
           if (internalStatus === 'settled' && oldStatus !== 'settled' && payment.account_id) {
-            // Store for settlement after transaction commits
-            this._pendingSettlement = payment;
+            // Store for settlement after transaction commits in local function scope
+            paymentToSettle = payment;
           }
         });
 
         // Run settlement OUTSIDE the lock transaction (it manages its own transaction internally)
-        if (this._pendingSettlement) {
-          const paymentToSettle = this._pendingSettlement;
-          this._pendingSettlement = null;
+        if (paymentToSettle) {
           try {
             await this._settlePayment(paymentToSettle);
           } catch (settleError) {
@@ -256,7 +256,7 @@ const webhookService = {
         await notificationService.createNotification(
           {
             user_id: recipientAccount.user_id,
-            title: 'Money Received!',
+            title: 'Payment Received',
             message: `You received ${money.toFormatted()} from ${senderUser?.name || 'a FinConnect user'}.`,
             type: 'transaction'
           },
@@ -287,6 +287,43 @@ const webhookService = {
 
       await t.commit();
       logger.info(`Payment ${payment.id} fully settled and encrypted.`);
+
+      // Broadcast real-time balance updates
+      try {
+        const { default: websocketService } = await import('./websocketService.js');
+        const senderAccount = await db.BankAccount.findByPk(payment.account_id);
+        if (senderAccount) {
+          websocketService.sendToUser(payment.user_id, {
+            type: 'BALANCE_UPDATED',
+            data: {
+              accountId: senderAccount.id,
+              currentBalance: Number(senderAccount.current_balance),
+              availableBalance: Number(senderAccount.available_balance),
+              changeType: 'DEBIT',
+              amount: amountPence,
+              reason: 'PAYMENT_SENT',
+            },
+          });
+        }
+        if (recipientAccount) {
+          const freshRecipientAcc = await db.BankAccount.findByPk(recipientAccount.id);
+          if (freshRecipientAcc) {
+            websocketService.sendToUser(recipientAccount.user_id, {
+              type: 'BALANCE_UPDATED',
+              data: {
+                accountId: freshRecipientAcc.id,
+                currentBalance: Number(freshRecipientAcc.current_balance),
+                availableBalance: Number(freshRecipientAcc.available_balance),
+                changeType: 'CREDIT',
+                amount: amountPence,
+                reason: 'PAYMENT_RECEIVED',
+              },
+            });
+          }
+        }
+      } catch (wsErr) {
+        logger.warn(`[webhookService] Balance push warning: ${wsErr.message}`);
+      }
     } catch (err) {
       await t.rollback();
       logger.error(`Failed to settle Payment ${payment.id}: ${err.message}`);

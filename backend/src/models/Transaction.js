@@ -10,6 +10,14 @@ const defineTransaction = (sequelize, DataTypes) => {
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true,
       },
+      account_id: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: {
+          model: 'bank_accounts',
+          key: 'id',
+        },
+      },
       external_transaction_id: {
         // PLAID JARGON: Plaid's 'transaction_id'.
         // WHY: To ensure we don't accidentally save the same transaction twice when we sync.

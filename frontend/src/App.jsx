@@ -84,6 +84,45 @@ function AdminProtectedRoute({ children }) {
   return children
 }
 
+// ─── Guest / Public Only Route (Login, Register, Forgot Password, Reset Password) ───
+function PublicOnlyRoute({ children }) {
+  const { user, isAuthenticated, isInitializing } = useApp()
+  
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="w-8 h-8 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin"></div>
+      </div>
+    )
+  }
+  
+  if (isAuthenticated) {
+    return <Navigate to={user?.role === 'admin' ? '/admin/dashboard' : '/app/dashboard'} replace />
+  }
+
+  return children
+}
+
+// ─── KYC Route (Only accessible if unverified or during signup) ───
+function KycRoute({ children }) {
+  const { user, isAuthenticated, isInitializing } = useApp()
+
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="w-8 h-8 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin"></div>
+      </div>
+    )
+  }
+
+  // If already authenticated and KYC verified, redirect to dashboard
+  if (isAuthenticated && user?.status === 'active') {
+    return <Navigate to={user?.role === 'admin' ? '/admin/dashboard' : '/app/dashboard'} replace />
+  }
+
+  return children
+}
+
 // ─── Toast Layer ─────────────────────────────────────────────
 function ToastLayer() {
   const { toasts, removeToast } = useApp()
@@ -95,20 +134,23 @@ export default function App() {
     <AppProvider>
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
-          {/* Public */}
+          {/* Public Marketing */}
           <Route path="/" element={<LandingPage />} />
           <Route path="/calculators/emi" element={<EmiCalculatorPage />} />
           <Route path="/calculators/eligibility" element={<EligibilityCalculatorPage />} />
-          <Route path="/app/calculators/emi" element={<EmiCalculatorPage />} />
-          <Route path="/app/calculators/eligibility" element={<EligibilityCalculatorPage />} />
 
-          {/* Auth */}
-          <Route path="/auth/login" element={<LoginPage />} />
-          <Route path="/auth/register" element={<RegisterPage />} />
-          <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
+          {/* Auth (Guest Only - Authenticated users are redirected to their dashboard) */}
+          <Route path="/auth" element={<Navigate to="/auth/login" replace />} />
+          <Route path="/auth/login" element={<PublicOnlyRoute><LoginPage /></PublicOnlyRoute>} />
+          <Route path="/auth/register" element={<PublicOnlyRoute><RegisterPage /></PublicOnlyRoute>} />
+          <Route path="/auth/forgot-password" element={<PublicOnlyRoute><ForgotPasswordPage /></PublicOnlyRoute>} />
+          <Route path="/auth/reset-password/:token" element={<PublicOnlyRoute><ResetPasswordPage /></PublicOnlyRoute>} />
           <Route path="/auth/verify-email/:token" element={<VerifyEmailPage />} />
-          <Route path="/auth/reset-password/:token" element={<ResetPasswordPage />} />
-          <Route path="/auth/verify-kyc" element={<KycVerifyPage />} />
+          <Route path="/auth/verify-kyc" element={<KycRoute><KycVerifyPage /></KycRoute>} />
+
+          {/* In-App Calculators (Protected for authenticated users) */}
+          <Route path="/app/calculators/emi" element={<UserOnlyProtectedRoute><EmiCalculatorPage /></UserOnlyProtectedRoute>} />
+          <Route path="/app/calculators/eligibility" element={<UserOnlyProtectedRoute><EligibilityCalculatorPage /></UserOnlyProtectedRoute>} />
 
           {/* User Financial Banking Routes (User Only) */}
           <Route path="/app" element={

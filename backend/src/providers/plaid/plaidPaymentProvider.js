@@ -1,7 +1,7 @@
-import plaidClient from './plaidClient.js';
-import AppError from '../../utils/appError.js';
 import logger from '../../config/logger.js';
-import config from '../../config/env.js';
+import AppError from '../../utils/appError.js';
+
+import plaidClient from './plaidClient.js';
 
 /**
  * PLAID PAYMENT INITIATION (VRP) PROVIDER

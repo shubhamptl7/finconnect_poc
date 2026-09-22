@@ -5,7 +5,7 @@ import { User, Mail, Phone, Calendar, Shield, Lock, Key, AlertTriangle, ChevronR
 import { useApp } from '@/store/AppContext'
 import { Card, Button, Input, Badge } from '@/components/ui'
 import { AppLayout, BreadcrumbBar } from '@/components/layout/AppLayout'
-import { cn, formatRelative } from '@/lib/utils'
+import { cn, formatRelative, getInitials } from '@/lib/utils'
 
 export function MyProfile() {
   const { user, logout, resetE2eeKeypair, verifyRecoveryPhrase } = useApp()
@@ -82,8 +82,8 @@ export function MyProfile() {
         <div className="lg:col-span-2 space-y-6">
           <Card className="p-0 overflow-hidden">
             <div className="p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center gap-6 border-b border-slate-100 bg-slate-50/50">
-              <div className="w-24 h-24 rounded-full bg-brand-600 flex items-center justify-center text-white text-3xl font-bold shadow-sm flex-shrink-0">
-                {user?.initials || 'U'}
+              <div className="w-24 h-24 rounded-full bg-brand-600 flex items-center justify-center text-white text-3xl font-bold shadow-sm flex-shrink-0 uppercase tracking-wider">
+                {user?.initials || getInitials(user?.name, user?.email)}
               </div>
               <div className="flex-1">
                 <h3 className="text-2xl font-bold text-slate-900 leading-tight" style={{ fontFamily: 'Geist, IBM Plex Sans, system-ui' }}>{user?.name}</h3>

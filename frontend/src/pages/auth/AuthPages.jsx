@@ -185,8 +185,8 @@ export function LoginPage() {
 
         <div className="flex items-center justify-between text-xs pt-1">
           <label className="flex items-center gap-2 cursor-pointer text-slate-600 font-medium">
-            <input type="checkbox" className="w-3.5 h-3.5 rounded border-slate-300 text-brand-600 cursor-pointer" />
-            <span>Remember me</span>
+            {/* <input type="checkbox" className="w-3.5 h-3.5 rounded border-slate-300 text-brand-600 cursor-pointer" />
+            <span>Remember me</span> */}
           </label>
           <Link to="/auth/forgot-password" className="text-brand-600 hover:text-brand-800 font-bold transition-colors">
             Forgot password?

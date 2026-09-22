@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, Copy, ChevronRight, Landmark, TrendingUp, ShieldCheck, CheckCircle2, CreditCard, ExternalLink, ArrowUpRight, ArrowDownLeft } from 'lucide-react'
 import { AppLayout, BreadcrumbBar } from '@/components/layout/AppLayout'
 import { Card, Button, Badge } from '@/components/ui'
-import { formatDate, cn } from '@/lib/utils'
+import { formatDate, cn, formatCurrency } from '@/lib/utils'
 import { formatPence } from '@/lib/currencyFormatters'
 import { useApp } from '@/store/AppContext'
 import ConnectBankButton from '@/components/ConnectBankButton'
@@ -224,7 +224,11 @@ function AccountDetail({ account }) {
 
                 <div className="text-right">
                   <p className={cn('text-sm font-bold tabular-nums', txn.type === 'credit' ? 'text-emerald-600' : 'text-slate-900')}>
-                    {txn.type === 'credit' ? '+' : '-'}{formatCurrency(Math.abs(txn.amount))}
+                    {txn.amount === null || txn.amount === undefined ? (
+                      <span className="text-slate-400">••••</span>
+                    ) : (
+                      <>{txn.type === 'credit' ? '+' : '−'}{formatCurrency(Math.abs(parseFloat(txn.amount || 0)))}</>
+                    )}
                   </p>
                   <span className="text-[10px] font-medium text-slate-400 uppercase">GBP</span>
                 </div>

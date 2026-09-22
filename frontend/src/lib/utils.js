@@ -65,3 +65,24 @@ export function sanitizeLoanApp(app) {
   }
 }
 
+export function getInitials(name, email = '') {
+  if (name && typeof name === 'string' && name.trim()) {
+    const parts = name.trim().split(/\s+/)
+    if (parts.length === 1) {
+      return parts[0].slice(0, 2).toUpperCase()
+    }
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  }
+  if (email && typeof email === 'string' && email.trim()) {
+    return email.trim().slice(0, 2).toUpperCase()
+  }
+  return 'FC'
+}
+
+export function stripEmojis(str) {
+  if (!str || typeof str !== 'string') return str || '';
+  return str
+    .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{1FA00}-\u{1FAFF}\u{200D}\u{FE0F}]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}

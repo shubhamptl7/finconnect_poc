@@ -6,9 +6,14 @@ import logger from '../config/logger.js';
 export const getNotifications = async (request, reply) => {
   try {
     const userId = request.user.id;
-    const { limit = 50, offset = 0 } = request.query;
+    const { limit = 50, offset = 0, type, unreadOnly } = request.query;
 
-    const result = await notificationService.getNotifications(userId, limit, offset);
+    const result = await notificationService.getNotifications(userId, {
+      limit: Number(limit),
+      offset: Number(offset),
+      type: type || null,
+      unreadOnly: unreadOnly === 'true' || unreadOnly === true,
+    });
 
     return successResponse({
       reply,

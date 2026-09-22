@@ -6,9 +6,9 @@ import {
   Bell, Search, Menu, X, Receipt, Building2,
   HelpCircle, LogOut, BarChart3, Calculator,
   ChevronLeft, Pin, Landmark, Wallet,
-  CheckCircle2, Shield, ShieldCheck,Info, CreditCard, User, Lock, Calendar,
+  CheckCircle2, Shield, ShieldCheck, Info, CreditCard, User, Lock, Calendar,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, formatRelative, getInitials, stripEmojis } from '@/lib/utils'
 import { useApp } from '@/store/AppContext'
 import { Badge, SearchInput } from '@/components/ui'
 
@@ -47,29 +47,25 @@ function Logo({ collapsed, isAdmin }) {
 
 // ─── Nav Items ─────────────────────────────────────────────
 const baseUserNavItems = [
-  { to: '/app/dashboard',     icon: <LayoutDashboard size={17} />, label: 'Dashboard' },
-  { to: '/app/banks',         icon: <Building2 size={17} />,       label: 'Connected Banks' },
-  { to: '/app/accounts',      icon: <Landmark size={17} />,        label: 'Accounts' },
-  { to: '/app/loans',         icon: <CreditCard size={17} />,      label: 'Loans' },
-  { to: '/app/emi',           icon: <Calendar size={17} />,        label: 'Manage EMI', isEmi: true },
-  { to: '/app/beneficiaries', icon: <Users size={17} />,           label: 'Beneficiaries' },
-  { to: '/app/payments',      icon: <ArrowLeftRight size={17} />,  label: 'Payments' },
-  { to: '/app/transactions',  icon: <Receipt size={17} />,         label: 'Transaction History' },
+  { to: '/app/dashboard', icon: <LayoutDashboard size={17} />, label: 'Dashboard' },
+  { to: '/app/banks', icon: <Building2 size={17} />, label: 'Connected Banks' },
+  { to: '/app/accounts', icon: <Landmark size={17} />, label: 'Accounts' },
+  { to: '/app/loans', icon: <CreditCard size={17} />, label: 'Loans' },
+  { to: '/app/emi', icon: <Calendar size={17} />, label: 'Manage EMI', isEmi: true },
+  { to: '/app/beneficiaries', icon: <Users size={17} />, label: 'Beneficiaries' },
+  { to: '/app/payments', icon: <ArrowLeftRight size={17} />, label: 'Payments' },
+  { to: '/app/transactions', icon: <Receipt size={17} />, label: 'Transaction History' },
+  { to: '/app/notifications', icon: <Bell size={17} />, label: 'Notifications' },
   { to: '/app/calculators/emi', icon: <Calculator size={17} />, label: 'Calculators' },
 ]
 
 const adminNavItems = [
   { to: '/admin/dashboard', icon: <LayoutDashboard size={17} />, label: 'Dashboard' },
-  { to: '/admin/loans',     icon: <ShieldCheck size={17} />,     label: 'Loan Applications' },
-  { to: '/admin/customers', icon: <Users size={17} />,        label: 'Customer Management' },
-  { to: '/admin/payments',  icon: <CreditCard size={17} />,   label: 'Payment Monitoring' },
-  { to: '/admin/audits',    icon: <ShieldCheck size={17} />,  label: 'Audit Logs' },
-]
-
-const bottomNavItems = [
-  { to: '/app/notifications', icon: <Bell size={17} />,        label: 'Notifications' },
-  // { to: '/app/settings',      icon: <Settings size={17} />,    label: 'Settings' },
-  // { to: '/app/help',          icon: <HelpCircle size={17} />,  label: 'Help & Support' },
+  { to: '/admin/loans', icon: <ShieldCheck size={17} />, label: 'Loan Applications' },
+  { to: '/admin/customers', icon: <Users size={17} />, label: 'Customer Management' },
+  { to: '/admin/payments', icon: <CreditCard size={17} />, label: 'Payment Monitoring' },
+  { to: '/admin/audits', icon: <ShieldCheck size={17} />, label: 'Audit Logs' },
+  { to: '/app/notifications', icon: <Bell size={17} />, label: 'Notifications' },
 ]
 
 function SidebarNavItem({ to, icon, label, collapsed, badge }) {
@@ -131,14 +127,7 @@ export function Sidebar({ collapsed, onToggle }) {
   const leaveTimer = useRef(null)
 
   const isAdmin = user?.role === 'admin'
-  // For the EMI link: if we know the active loan application ID, link directly
-  // to /app/emi/:id to skip the getApplications() lookup on the page
-  const userNavItems = baseUserNavItems.map(item =>
-    item.isEmi && activeLoanApplicationId
-      ? { ...item, to: `/app/emi/${activeLoanApplicationId}` }
-      : item
-  )
-  const activeNavItems = isAdmin ? adminNavItems : userNavItems
+  const activeNavItems = isAdmin ? adminNavItems : baseUserNavItems
 
   const visuallyCollapsed = collapsed && !isHovered
   const isPeeking = collapsed && isHovered
@@ -201,29 +190,21 @@ export function Sidebar({ collapsed, onToggle }) {
             {...item}
           />
         ))}
-
-        {/* Divider */}
-        <div className="my-3 h-px bg-slate-100 mx-1" />
-
-        {bottomNavItems.map(item => (
-          <SidebarNavItem
-            key={item.to}
-            collapsed={visuallyCollapsed}
-            badge={item.to === '/app/notifications' ? (unreadCount > 0 ? unreadCount : undefined) : undefined}
-            {...item}
-          />
-        ))}
       </nav>
 
       {/* User profile */}
       <div className="p-3 border-t border-slate-100 flex-shrink-0">
-        <div className={cn(
-          'flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer group',
-          visuallyCollapsed && 'justify-center px-2'
-        )}>
+        <div
+          onClick={() => navigate('/app/profile')}
+          className={cn(
+            'flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer group',
+            visuallyCollapsed && 'justify-center px-2'
+          )}
+          title="View profile"
+        >
           {/* Avatar */}
-          <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center flex-shrink-0 shadow-[0_0_0_2px_rgba(15,118,110,0.15)]">
-            <span className="text-white text-xs font-bold">{user.initials}</span>
+          <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center flex-shrink-0 shadow-[0_0_0_2px_rgba(15,118,110,0.15)] text-white text-xs font-bold uppercase tracking-wider">
+            {user?.initials || getInitials(user?.name, user?.email)}
           </div>
           <AnimatePresence>
             {!visuallyCollapsed && (
@@ -233,8 +214,8 @@ export function Sidebar({ collapsed, onToggle }) {
                 exit={{ opacity: 0 }}
                 className="flex-1 min-w-0"
               >
-                <p className="text-sm font-semibold text-slate-800 truncate leading-tight">{user.name}</p>
-                <p className="text-[11px] text-slate-400 truncate">{user.email}</p>
+                <p className="text-sm font-semibold text-slate-800 truncate leading-tight">{user?.name || 'FinConnect User'}</p>
+                <p className="text-[11px] text-slate-400 truncate">{user?.email || ''}</p>
               </motion.div>
             )}
           </AnimatePresence>
@@ -244,7 +225,7 @@ export function Sidebar({ collapsed, onToggle }) {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                onClick={handleLogout}
+                onClick={(e) => { e.stopPropagation(); handleLogout(); }}
                 className="text-slate-300 hover:text-red-500 transition-colors cursor-pointer flex-shrink-0 p-1 rounded-lg hover:bg-red-50"
                 title="Sign out"
                 aria-label="Sign out"
@@ -262,70 +243,95 @@ export function Sidebar({ collapsed, onToggle }) {
 // ─── Notification Panel ───────────────────────────────────
 function NotificationPanel({ onClose }) {
   const { notifications, markNotificationRead, markAllRead } = useApp()
+  const navigate = useNavigate()
   const unread = notifications.filter(n => !n.is_read)
 
   const typeIconConfig = {
-    transaction: { bg: 'bg-emerald-50', text: 'text-emerald-600', icon: <ArrowLeftRight size={13} /> },
-    security:    { bg: 'bg-red-50',     text: 'text-red-600',     icon: <Shield size={13} /> },
-    kyc:         { bg: 'bg-brand-50',   text: 'text-brand-600',   icon: <CheckCircle2 size={13} /> },
-    promo:       { bg: 'bg-violet-50',  text: 'text-violet-600',  icon: <BarChart3 size={13} /> },
-    default:     { bg: 'bg-slate-100',  text: 'text-slate-600',   icon: <Info size={13} /> },
+    loan: { bg: 'bg-teal-50 text-teal-700 border-teal-200', text: 'text-teal-700', icon: <Landmark size={13} />, label: 'LOAN' },
+    transaction: { bg: 'bg-emerald-50 text-emerald-700 border-emerald-200', text: 'text-emerald-700', icon: <ArrowLeftRight size={13} />, label: 'PAYMENT' },
+    security: { bg: 'bg-rose-50 text-rose-700 border-rose-200', text: 'text-rose-700', icon: <Shield size={13} />, label: 'SECURITY' },
+    kyc: { bg: 'bg-brand-50 text-brand-700 border-brand-200', text: 'text-brand-700', icon: <CheckCircle2 size={13} />, label: 'KYC' },
+    promo: { bg: 'bg-violet-50 text-violet-700 border-violet-200', text: 'text-violet-700', icon: <BarChart3 size={13} />, label: 'UPDATE' },
+    default: { bg: 'bg-slate-100 text-slate-700 border-slate-200', text: 'text-slate-700', icon: <Info size={13} />, label: 'INFO' },
+  }
+
+  const handleItemClick = (n) => {
+    markNotificationRead(n.id)
+    onClose()
+    if (n.action_url) {
+      navigate(n.action_url)
+    }
   }
 
   return (
     <div>
       <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-semibold text-slate-900">Notifications</h3>
+          <h3 className="text-sm font-bold text-slate-900">Notifications</h3>
           {unread.length > 0 && (
-            <span className="bg-brand-600 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
-              {unread.length}
+            <span className="bg-brand-600 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-full flex items-center justify-center">
+              {unread.length} new
             </span>
           )}
         </div>
         {unread.length > 0 && (
-          <button onClick={markAllRead} className="text-xs text-brand-600 hover:text-brand-800 font-medium cursor-pointer transition-colors">
+          <button onClick={markAllRead} className="text-xs text-teal-700 hover:text-teal-900 font-bold cursor-pointer transition-colors">
             Mark all read
           </button>
         )}
       </div>
 
-      <div className="max-h-80 overflow-y-auto">
+      <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
         {notifications.length === 0 ? (
           <div className="py-8 text-center">
             <Bell size={24} className="text-slate-300 mx-auto mb-2" />
-            <p className="text-sm text-slate-500">No notifications yet</p>
+            <p className="text-sm font-semibold text-slate-500">No notifications yet</p>
           </div>
         ) : (
-          notifications.slice(0, 6).map(n => {
+          notifications.slice(0, 8).map(n => {
             const config = typeIconConfig[n.type] || typeIconConfig.default
             return (
               <button
                 key={n.id}
-                onClick={() => { markNotificationRead(n.id); onClose() }}
+                onClick={() => handleItemClick(n)}
                 className={cn(
-                  'w-full flex items-start gap-3 px-5 py-4 hover:bg-slate-50 transition-colors text-left cursor-pointer border-b border-slate-50 last:border-0',
-                  !n.is_read && 'bg-brand-50/30'
+                  'w-full flex items-start gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors text-left cursor-pointer group',
+                  !n.is_read ? 'bg-teal-50/20' : 'bg-white opacity-85'
                 )}
               >
-                <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5', config.bg, config.text)}>
+                <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 border shadow-2xs', config.bg)}>
                   {config.icon}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className={cn('text-sm font-medium text-slate-900 truncate', !n.is_read && 'font-semibold')}>{n.title}</p>
-                    {!n.is_read && <span className="w-2 h-2 bg-brand-500 rounded-full flex-shrink-0 mt-1" />}
+                  <div className="flex items-center justify-between gap-2">
+                    <p className={cn('text-xs font-bold truncate', !n.is_read ? 'text-slate-900' : 'text-slate-600')}>
+                      {stripEmojis(n.title)}
+                    </p>
+                    <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">
+                      {formatRelative(n.createdAt || n.created_at || new Date())}
+                    </span>
                   </div>
-                  <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{n.content || n.message}</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-2 leading-relaxed">{stripEmojis(n.content || n.message)}</p>
+                  {n.action_url && (
+                    <span className="inline-block mt-1 text-[10px] font-bold text-teal-700 group-hover:underline">
+                      View details →
+                    </span>
+                  )}
                 </div>
+                {!n.is_read && (
+                  <span className="w-2 h-2 rounded-full bg-teal-600 flex-shrink-0 mt-2" />
+                )}
               </button>
             )
           })
         )}
       </div>
 
-      <div className="p-3 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl">
-        <button onClick={onClose} className="w-full text-center text-xs text-brand-600 hover:text-brand-800 font-medium py-1.5 cursor-pointer transition-colors">
+      <div className="p-3 border-t border-slate-100 bg-slate-50/70 rounded-b-2xl">
+        <button
+          onClick={() => { onClose(); navigate('/app/notifications'); }}
+          className="w-full text-center text-xs text-teal-700 hover:text-teal-900 font-bold py-1 cursor-pointer transition-colors"
+        >
           View all notifications →
         </button>
       </div>
@@ -402,17 +408,17 @@ export function TopBar({ title, subtitle }) {
         </div>
 
         {/* Profile */}
-        <div 
+        <div
           className="relative ml-2"
           onMouseEnter={() => setShowProfileMenu(true)}
           onMouseLeave={() => setShowProfileMenu(false)}
         >
           <button
             onClick={() => navigate('/app/profile')}
-            className="w-9 h-9 rounded-full bg-brand-600 flex items-center justify-center shadow-[0_0_0_2px_rgba(15,118,110,0.15)] cursor-pointer overflow-hidden transition-transform hover:scale-105"
+            className="w-9 h-9 rounded-full bg-brand-600 flex items-center justify-center shadow-[0_0_0_2px_rgba(15,118,110,0.15)] cursor-pointer overflow-hidden transition-transform hover:scale-105 text-white text-xs font-bold uppercase tracking-wider"
             aria-label="User profile"
           >
-            <span className="text-white text-xs font-bold">{user?.initials || 'U'}</span>
+            <span>{user?.initials || getInitials(user?.name, user?.email)}</span>
           </button>
 
           <AnimatePresence>
@@ -422,8 +428,12 @@ export function TopBar({ title, subtitle }) {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 6, scale: 0.97 }}
                 transition={{ duration: 0.15 }}
-                className="absolute right-0 top-11 w-48 bg-white rounded-xl border border-slate-100 shadow-[0_8px_24px_rgba(11,18,32,0.10)] z-50 overflow-hidden py-1"
+                className="absolute right-0 top-11 w-52 bg-white rounded-xl border border-slate-100 shadow-[0_8px_24px_rgba(11,18,32,0.10)] z-50 overflow-hidden py-1"
               >
+                <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50/70">
+                  <p className="text-xs font-bold text-slate-800 truncate">{user?.name || 'FinConnect User'}</p>
+                  <p className="text-[11px] text-slate-500 truncate">{user?.email || ''}</p>
+                </div>
                 <button
                   onClick={() => { setShowProfileMenu(false); navigate('/app/profile/update') }}
                   className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-brand-600 transition-colors cursor-pointer flex items-center gap-2"

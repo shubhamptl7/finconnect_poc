@@ -18,15 +18,15 @@ export default function LoanApplicationStatusPage() {
     let isCancelled = false
     let timerId = null
 
-    const runPoll = async () => {
+    const fetchLatest = async () => {
       try {
         const data = await loanApi.getApplicationById(id)
         if (!isCancelled) {
           setApp(data)
           setLoading(false)
-          // Only poll if application exists and is in pending/underwriting status
+          // Fallback polling if still pending
           if (data && ['SUBMITTED', 'UNDERWRITING', 'ADMIN_REVIEW_PENDING'].includes(data.status)) {
-            timerId = setTimeout(runPoll, 4000)
+            timerId = setTimeout(fetchLatest, 6000)
           }
         }
       } catch (err) {
@@ -34,16 +34,27 @@ export default function LoanApplicationStatusPage() {
           console.error('Failed to fetch application status:', err)
           setApp(null)
           setLoading(false)
-          // Do not schedule next poll on 404 / error
         }
       }
     }
 
-    runPoll()
+    fetchLatest()
+
+    // Real-Time WebSocket instant push handler (Instant offer display without polling delays)
+    const handleLoanAppUpdated = (event) => {
+      const data = event.detail
+      if (data && (data.applicationId === id || !data.applicationId)) {
+        if (timerId) clearTimeout(timerId)
+        fetchLatest()
+      }
+    }
+
+    window.addEventListener('loan-application-updated', handleLoanAppUpdated)
 
     return () => {
       isCancelled = true
       if (timerId) clearTimeout(timerId)
+      window.removeEventListener('loan-application-updated', handleLoanAppUpdated)
     }
   }, [id])
 

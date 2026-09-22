@@ -152,7 +152,7 @@ export default function LoanApplicationPage() {
     const income = form.monthly_income / 100
     const debt = form.existing_monthly_obligations / 100
     const emi = calcEstimatedEMI()
-    if (!income || income <= 0) return 0
+    if (!income || income <= 0) return (debt + emi) > 0 ? 100 : 0
     return Math.round(((debt + emi) / income) * 100)
   }
 
@@ -451,7 +451,7 @@ export default function LoanApplicationPage() {
                                 </div>
                                 <div className="text-right">
                                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Available</span>
-                                  <p className={cn('text-sm font-bold font-mono', isSelected ? 'text-emerald-700' : 'text-slate-900')}>£{balance}</p>
+                                  <p className={cn('text-sm font-bold font-mono', isSelected ? 'text-emerald-700' : 'text-slate-900')}>{balance}</p>
                                 </div>
                               </div>
                             )

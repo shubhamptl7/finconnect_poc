@@ -1,8 +1,17 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { useNotifications } from '../hooks/useNotifications'
 import { generateRecoveryCode, generateAndBackupKeypair3, loadPrivateKey, getStoredPublicKeyX, restoreKeyWithMode, restoreKey, clearPrivateKey, decryptEcies } from '../lib/e2ee.js'
+import { getInitials } from '../lib/utils.js'
 
 const AppContext = createContext(null)
+
+const normalizeUser = (userData) => {
+  if (!userData) return null
+  return {
+    ...userData,
+    initials: userData.initials || getInitials(userData.name, userData.email),
+  }
+}
 
 export function AppProvider({ children }) {
   const [user, setUser] = useState(null)
@@ -32,9 +41,7 @@ export function AppProvider({ children }) {
   const [transactionMeta, setTransactionMeta] = useState({ totalCount: 0, limit: 50, offset: 0, page: 1, totalPages: 1 })
   const [payments, setPayments] = useState([])
   const [beneficiaries, setBeneficiaries] = useState([])
-  const [activeLoanApplicationId, setActiveLoanApplicationId] = useState(
-    () => sessionStorage.getItem('activeLoanAppId') || null
-  )
+  const [activeLoanApplicationId, setActiveLoanApplicationId] = useState(null)
 
   const addToast = useCallback((toast) => {
     const id = Date.now() + Math.random().toString(36).substring(2, 9)
@@ -153,7 +160,7 @@ export function AppProvider({ children }) {
       }
     }
 
-    setUser(data.data);
+    setUser(normalizeUser(data.data));
     setIsAuthenticated(true);
     return data;
   }, [API_URL, authFetch]);
@@ -374,7 +381,7 @@ export function AppProvider({ children }) {
         const response = await authFetch(`${API_URL}/auth/me`);
         if (response.ok) {
           const data = await response.json();
-          setUser(data.data);
+          setUser(normalizeUser(data.data));
           setIsAuthenticated(true);
 
           // E2EE Check on session load (skip for admin accounts)
@@ -432,7 +439,7 @@ export function AppProvider({ children }) {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Failed to update profile');
-    setUser(data.data);
+    setUser(normalizeUser(data.data));
     return data.data;
   }, [API_URL]);
 
@@ -459,7 +466,7 @@ export function AppProvider({ children }) {
         const meData = await meRes.json();
         if (meData.data?.e2ee_key_backup) {
           backupBlobStr = meData.data.e2ee_key_backup;
-          setUser(meData.data);
+          setUser(normalizeUser(meData.data));
         }
       }
     } catch (err) {
@@ -599,11 +606,11 @@ export function AppProvider({ children }) {
       throw new Error(errData.message || 'Failed to save security key backup to server');
     }
 
-    setUser(prev => prev ? {
+    setUser(prev => prev ? normalizeUser({
       ...prev,
       e2ee_public_key: JSON.stringify(publicKeyJwk),
       e2ee_key_backup: JSON.stringify(mergedBlob)
-    } : prev);
+    }) : prev);
 
     setNeedsKeyRecovery(false);
     setEmergencyNotice(null);
@@ -637,32 +644,57 @@ export function AppProvider({ children }) {
     return { success: false, message: '✕ Code does not match your active Primary Secret or any Emergency Code.' };
   }, [user]);
 
-  // Load bank data when authenticated
-  // NOTE: fetchTransactions is intentionally excluded here — it runs E2EE decryption
-  // on up to 50+ transactions (each needing 5 WebCrypto ops), which blocks React rendering
-  // for several seconds on every navigation. TransactionsPage loads its own data lazily.
+  // Load bank data when authenticated (fetch initial 15 transactions for dashboard)
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && user?.id) {
       fetchBankConnections();
       fetchBankAccounts();
       fetchPayments();
       fetchBeneficiaries();
-      // Fetch active loan application ID once, lightweight (no big joins)
-      if (!activeLoanApplicationId) {
-        fetch(`${API_URL}/loans/applications`, { credentials: 'include' })
-          .then(r => r.ok ? r.json() : null)
-          .then(data => {
-            const ACTIVE_STATUSES = ['LOAN_CREATED', 'DISBURSED', 'ACTIVE', 'CLOSED', 'COMPLETED'];
-            const active = (data?.data || []).find(a => ACTIVE_STATUSES.includes(a.status));
-            if (active?.id) {
-              setActiveLoanApplicationId(active.id);
-              sessionStorage.setItem('activeLoanAppId', active.id);
-            }
-          })
-          .catch(() => {});
-      }
+      fetchTransactions(50, 0);
+      // Fetch active loan application ID specifically for current authenticated user
+      fetch(`${API_URL}/loans/applications`, { credentials: 'include' })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          const ACTIVE_STATUSES = ['LOAN_CREATED', 'DISBURSED', 'ACTIVE', 'CLOSED', 'COMPLETED'];
+          const active = (data?.data || []).find(a => ACTIVE_STATUSES.includes(a.status));
+          if (active?.id) {
+            setActiveLoanApplicationId(active.id);
+            sessionStorage.setItem('activeLoanAppId', active.id);
+          } else {
+            setActiveLoanApplicationId(null);
+            sessionStorage.removeItem('activeLoanAppId');
+          }
+        })
+        .catch(() => {});
     }
-  }, [isAuthenticated, fetchBankConnections, fetchBankAccounts, fetchPayments, fetchBeneficiaries, API_URL, activeLoanApplicationId]);
+  }, [isAuthenticated, user?.id, fetchBankConnections, fetchBankAccounts, fetchPayments, fetchBeneficiaries, API_URL]);
+
+  // Real-time balance updates via WebSockets
+  useEffect(() => {
+    const handleBalanceUpdated = (event) => {
+      const data = event.detail;
+      if (!data) return;
+      if (data.accountId && data.currentBalance !== undefined) {
+        setBankAccounts(prev => prev.map(acc => {
+          if (acc.id === data.accountId) {
+            return {
+              ...acc,
+              current_balance: data.currentBalance,
+              available_balance: data.availableBalance !== undefined ? data.availableBalance : data.currentBalance,
+            };
+          }
+          return acc;
+        }));
+      }
+      fetchBankAccounts();
+    };
+
+    window.addEventListener('finconnect-balance-updated', handleBalanceUpdated);
+    return () => {
+      window.removeEventListener('finconnect-balance-updated', handleBalanceUpdated);
+    };
+  }, [fetchBankAccounts]);
 
   const removeToast = useCallback((id) => {
     setToasts(prev => prev.filter(t => t.id !== id))

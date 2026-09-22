@@ -85,6 +85,78 @@ export const loanAutopayService = {
   },
 
   /**
+   * Generates a Plaid VRP Consent for the borrower before accepting a loan offer.
+   * Mandate-First Flow: The borrower authorizes the VRP mandate with their designated bank
+   * BEFORE the loan is originated and disbursed.
+   *
+   * @param {string} userId
+   * @param {string} applicationId
+   * @param {string} [offerId]
+   * @returns {Promise<Object>} { consent_id, link_token }
+   */
+  async setupOfferAutopayConsent(userId, applicationId, offerId = null) {
+    logger.info(`[LoanAutopayService] Setting up pre-acceptance VRP consent for user ${userId}, app ${applicationId}`);
+
+    const application = await db.LoanApplication.findOne({
+      where: { id: applicationId, user_id: userId },
+      include: [
+        { model: db.LoanOffer, as: 'offer' },
+      ],
+    });
+
+    if (!application) {
+      throw new AppError('Loan application not found', 404);
+    }
+
+    const offer = offerId
+      ? await db.LoanOffer.findOne({ where: { id: offerId, application_id: applicationId, user_id: userId } })
+      : application.offer;
+
+    if (!offer || (offer.status !== 'OFFERED' && offer.status !== 'PROCESSING')) {
+      throw new AppError('Valid loan offer not found or not in offered status', 400);
+    }
+
+    if (!application.bank_account_id) {
+      throw new AppError('No dedicated bank account designated for this loan application', 400);
+    }
+
+    const bankAccount = await db.BankAccount.findOne({
+      where: { id: application.bank_account_id, user_id: userId },
+      include: [{ model: db.BankConnection, as: 'connection' }],
+    });
+
+    if (!bankAccount) {
+      throw new AppError('The designated bank account for this loan is no longer active', 404);
+    }
+
+    const recipientId = process.env.PLAID_UK_RECIPIENT_ID || 'recipient-id-sandbox-cdedd68a-5d49-4210-96a1-13413bdd08fa';
+    
+    // Set consent to be valid until the maturity date of the loan + 30 days buffer
+    const tenureMonths = Number(offer.tenure_months || 12);
+    const validDatetimeTo = new Date(Date.now() + (tenureMonths * 30 + 60) * 24 * 60 * 60 * 1000);
+
+    const safeMonthlyLimit = Number(offer.estimated_emi || 0) + 500; // Add £5.00 safety buffer for rounding
+
+    const consentId = await plaidPaymentProvider.createVrpConsent({
+      monthlyAmountMinor: safeMonthlyLimit,
+      currency: 'GBP',
+      reference: `AutoPay${application.application_number ? application.application_number.replace(/[^a-zA-Z0-9]/g, '').slice(-10) : application.id.substring(0, 8)}`,
+      recipientId,
+      validDatetimeTo,
+    });
+
+    // Use designated bank's institution to skip institution selection in Plaid Link
+    const institutionId = bankAccount.connection?.institution_id || null;
+
+    const linkToken = await plaidBankProvider.createVrpConsentToken(userId, consentId, institutionId);
+
+    return {
+      consent_id: consentId,
+      link_token: linkToken,
+    };
+  },
+
+  /**
    * Activates the AutoPay authorization after the user successfully completes Plaid Link.
    *
    * @param {string} userId 
@@ -104,6 +176,27 @@ export const loanAutopayService = {
     auth.status = 'ACTIVE';
     auth.authorized_at = new Date();
     await auth.save();
+
+    // Send Real-Time Notification to borrower
+    try {
+      const { default: notificationService } = await import('../notificationService.js');
+      const loan = await db.Loan.findByPk(auth.loan_id);
+      const appTargetId = loan?.application_id || auth.loan_id;
+      await notificationService.createNotification({
+        user_id: userId,
+        title: 'AutoPay Mandate Activated',
+        message: 'Variable Recurring Payment (VRP) consent is active. Monthly loan EMIs will be debited automatically from your designated account.',
+        type: 'loan',
+        action_url: `/app/emi/${appTargetId}`,
+        metadata: {
+          loanId: auth.loan_id,
+          authorizationId: auth.id,
+          monthlyLimit: auth.amount,
+        },
+      });
+    } catch (notifErr) {
+      logger.warn(`[LoanAutopayService] Notification error: ${notifErr.message}`);
+    }
 
     return auth;
   },

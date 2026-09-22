@@ -50,15 +50,20 @@ const websocketService = {
         socket.send(JSON.stringify({ type: 'AUTH_SUCCESS' }));
       })
       .catch((err) => {
-        logger.error(`WebSocket auth error: ${err.message}`);
+        // "No auth cookie" is normal for unauthenticated / logged-out browser tabs
+        // (also doubled by React StrictMode double-mount in development).
+        // Only log genuine security anomalies — expired tokens, suspended accounts, etc.
+        if (err.message !== 'No auth cookie') {
+          logger.warn(`WebSocket auth rejected: ${err.message}`);
+        }
         socket.send(JSON.stringify({ type: 'ERROR', message: 'Authentication failed' }));
-        socket.close();
+        socket.close(4401, 'Authentication failed');
       });
 
     socket.on('message', async (message) => {
       try {
-        const payload = JSON.parse(message);
-        // logger.info(`Received WS message from User ${socketUserId}:`, payload);
+        const _payload = JSON.parse(message);
+        // logger.info(`Received WS message from User ${socketUserId}:`, _payload);
       } catch (err) {
         logger.error(`Failed to parse incoming WS message: ${err.message}`);
       }
@@ -76,6 +81,10 @@ const websocketService = {
    */
   sendToUser(userId, payload) {
     pubSub.publish('USER_NOTIFICATION', JSON.stringify({ userId, data: payload }));
+  },
+
+  notifyUser(userId, payload) {
+    this.sendToUser(userId, payload);
   },
 
   // --- Internal Connection Management ---

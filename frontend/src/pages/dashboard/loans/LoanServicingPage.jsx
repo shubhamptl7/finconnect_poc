@@ -4,7 +4,7 @@ import { AppLayout } from '@/components/layout/AppLayout'
 import { Card, Button, Badge } from '@/components/ui'
 import { loanApi } from '@/services/loanApi'
 import { ChevronRight, Calendar, DollarSign, Activity, AlertCircle, ShieldCheck, Landmark } from 'lucide-react'
-import { formatDate, cn, formatCurrency } from '@/lib/utils'
+import { formatDate, cn } from '@/lib/utils'
 import { formatPence } from '@/lib/currencyFormatters'
 import { useApp } from '@/store/AppContext'
 import { usePlaidLink } from 'react-plaid-link'
@@ -35,9 +35,15 @@ export default function LoanServicingPage() {
       let targetId = id;
       let appData = null;
 
-      if (!targetId) {
+      // Check if targetId is provided and actually belongs to the user's active loans
+      if (!targetId || !activeApps.some(a => a.id === targetId)) {
         if (activeApps.length === 0) {
           setApplication(null)
+          setActiveLoanApplicationId(null)
+          sessionStorage.removeItem('activeLoanAppId')
+          if (id) {
+            window.history.replaceState(null, '', '/app/emi')
+          }
           setLoading(false)
           return
         }

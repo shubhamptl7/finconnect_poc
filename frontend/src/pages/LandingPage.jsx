@@ -8,12 +8,14 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui'
 import { cn } from '@/lib/utils'
+import { useApp } from '@/store/AppContext'
 import CalculatorsDropdown from '@/components/layout/CalculatorsDropdown'
 
 const fadeUp = { initial: { opacity: 0, y: 20 }, whileInView: { opacity: 1, y: 0 }, viewport: { once: true }, transition: { duration: 0.5, ease: [0.4, 0, 0.2, 1] } }
 
 function Navbar() {
   const [scrolled, setScrolled] = useState(false)
+  const { isAuthenticated, user } = useApp()
 
   if (typeof window !== 'undefined') {
     const handleScroll = () => setScrolled(window.scrollY > 20)
@@ -51,12 +53,20 @@ function Navbar() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Link to="/auth/login">
-            <Button variant="ghost" size="sm" className="font-semibold text-slate-700">Sign in</Button>
-          </Link>
-          <Link to="/auth/register">
-            <Button size="sm" iconRight={<ArrowRight size={14} />} className="shadow-sm">Get Started</Button>
-          </Link>
+          {isAuthenticated ? (
+            <Link to={user?.role === 'admin' ? '/admin/dashboard' : '/app/dashboard'}>
+              <Button size="sm" iconRight={<ArrowRight size={14} />} className="shadow-sm">Go to Dashboard</Button>
+            </Link>
+          ) : (
+            <>
+              <Link to="/auth/login">
+                <Button variant="ghost" size="sm" className="font-semibold text-slate-700">Sign in</Button>
+              </Link>
+              <Link to="/auth/register">
+                <Button size="sm" iconRight={<ArrowRight size={14} />} className="shadow-sm">Get Started</Button>
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </nav>
@@ -64,6 +74,8 @@ function Navbar() {
 }
 
 function Hero() {
+  const { isAuthenticated, user } = useApp()
+
   return (
     <section className="pt-32 pb-20 px-6 relative overflow-hidden bg-gradient-to-b from-[#F4F7FB] via-[#F4F7FB] to-white border-b border-slate-200/60">
       <div className="max-w-6xl mx-auto text-center relative z-10">
@@ -87,16 +99,26 @@ function Hero() {
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-            <Link to="/auth/register">
-              <Button size="lg" iconRight={<ArrowRight size={16} />} className="w-full sm:w-auto shadow-md">
-                Create Free Account
-              </Button>
-            </Link>
-            <Link to="/auth/login">
-              <Button variant="secondary" size="lg" className="w-full sm:w-auto">
-                Sign In to Dashboard
-              </Button>
-            </Link>
+            {isAuthenticated ? (
+              <Link to={user?.role === 'admin' ? '/admin/dashboard' : '/app/dashboard'}>
+                <Button size="lg" iconRight={<ArrowRight size={16} />} className="w-full sm:w-auto shadow-md">
+                  Go to Dashboard
+                </Button>
+              </Link>
+            ) : (
+              <>
+                <Link to="/auth/register">
+                  <Button size="lg" iconRight={<ArrowRight size={16} />} className="w-full sm:w-auto shadow-md">
+                    Create Free Account
+                  </Button>
+                </Link>
+                <Link to="/auth/login">
+                  <Button variant="secondary" size="lg" className="w-full sm:w-auto">
+                    Sign In to Dashboard
+                  </Button>
+                </Link>
+              </>
+            )}
           </div>
           <p className="text-xs text-slate-400 font-medium mt-4">Zero credential storage · Read-only tokenized connection</p>
         </motion.div>

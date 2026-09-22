@@ -12,8 +12,11 @@ const loanOfferService = {
   async generateOffer(applicationId, options = {}) {
     logger.info(`[loanOfferService] Generating offer for application ${applicationId}`, options);
 
+    const txn = options.transaction || null;
+
     const application = await db.LoanApplication.findOne({
       where: { id: applicationId },
+      ...(txn ? { transaction: txn } : {}),
     });
 
     if (!application) {
@@ -47,6 +50,7 @@ const loanOfferService = {
     // Check if offer already exists for application
     let offer = await db.LoanOffer.findOne({
       where: { application_id: applicationId },
+      ...(txn ? { transaction: txn } : {}),
     });
 
     const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // Expiration +14 days
@@ -60,7 +64,7 @@ const loanOfferService = {
       offer.total_repayment = eligibility.totalRepaymentCents;
       offer.status = 'OFFERED';
       offer.expires_at = expiresAt;
-      await offer.save();
+      await offer.save(txn ? { transaction: txn } : undefined);
     } else {
       offer = await db.LoanOffer.create({
         application_id: applicationId,
@@ -73,11 +77,11 @@ const loanOfferService = {
         total_repayment: eligibility.totalRepaymentCents,
         status: 'OFFERED',
         expires_at: expiresAt,
-      });
+      }, txn ? { transaction: txn } : undefined);
     }
 
     application.status = 'OFFER_GENERATED';
-    await application.save();
+    await application.save(txn ? { transaction: txn } : undefined);
 
     // Log Audit Event
     try {
@@ -91,7 +95,7 @@ const loanOfferService = {
           estimatedEmiCents: eligibility.estimatedEmiCents,
           interestRateBps: rateBps,
         },
-      });
+      }, txn ? { transaction: txn } : undefined);
     } catch (auditErr) {
       logger.warn(`[loanOfferService] Audit log error: ${auditErr.message}`);
     }

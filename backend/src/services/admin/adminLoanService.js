@@ -31,66 +31,97 @@ const adminLoanService = {
 
     logger.info(`[adminLoanService] Admin ${adminUserId} approving loan application ${applicationId}`, options);
 
-    // Acquire atomic lock on state transition
-    const [updatedRows] = await db.LoanApplication.update(
-      { status: 'APPROVED', underwriting_status: 'APPROVED', approved_by_admin_id: adminUserId },
-      { where: { id: applicationId, status: 'ADMIN_REVIEW_PENDING' } }
-    );
-
-    const application = await db.LoanApplication.findOne({
-      where: { id: applicationId },
-      include: [{ model: db.User, as: 'user' }],
-    });
-
-    if (!application) {
-      throw new AppError('Loan application not found', STATUS_CODES.NOT_FOUND);
-    }
-
-    if (updatedRows === 0) {
-      if (application.status === 'APPROVED' || application.status === 'OFFER_GENERATED' || application.status === 'ACCEPTED') {
-        throw new AppError('Loan application is already approved', STATUS_CODES.BAD_REQUEST);
-      }
-      throw new AppError(`Cannot approve application in ${application.status} status`, STATUS_CODES.BAD_REQUEST);
-    }
-
-    // Admin binding decision details
-    application.admin_notes = adminNotes || 'Approved by Administrator after underwriting review.';
-    await application.save();
-
-    // Log Audit Event
-    try {
-      await db.AuditLog.create({
-        user_id: adminUserId,
-        action: 'LOAN_APPROVED_BY_ADMIN',
-        metadata: {
-          applicationId: application.id,
-          applicationNumber: application.application_number,
-          borrowerUserId: application.user_id,
-          adminNotes,
-          customInterestRateBps,
-          customApprovedAmountCents,
-          customTenureMonths,
-        },
-      });
-    } catch (auditErr) {
-      logger.warn(`[adminLoanService] Audit error: ${auditErr.message}`);
-    }
-
-    // Automatically generate binding LoanOffer for the borrower with custom terms
+    let application;
     let offer;
-    try {
+
+    await db.sequelize.transaction(async (t) => {
+      // Acquire atomic lock on state transition
+      const [updatedRows] = await db.LoanApplication.update(
+        { status: 'APPROVED', underwriting_status: 'APPROVED', approved_by_admin_id: adminUserId },
+        { where: { id: applicationId, status: 'ADMIN_REVIEW_PENDING' }, transaction: t }
+      );
+
+      application = await db.LoanApplication.findOne({
+        where: { id: applicationId },
+        include: [{ model: db.User, as: 'user' }],
+        transaction: t,
+      });
+
+      if (!application) {
+        throw new AppError('Loan application not found', STATUS_CODES.NOT_FOUND);
+      }
+
+      if (updatedRows === 0) {
+        if (application.status === 'APPROVED' || application.status === 'OFFER_GENERATED' || application.status === 'ACCEPTED') {
+          throw new AppError('Loan application is already approved', STATUS_CODES.BAD_REQUEST);
+        }
+        throw new AppError(`Cannot approve application in ${application.status} status`, STATUS_CODES.BAD_REQUEST);
+      }
+
+      // Admin binding decision details
+      application.admin_notes = adminNotes || 'Approved by Administrator after underwriting review.';
+      await application.save({ transaction: t });
+
+      // Log Audit Event within transaction
+      try {
+        await db.AuditLog.create({
+          user_id: adminUserId,
+          action: 'LOAN_APPROVED_BY_ADMIN',
+          metadata: {
+            applicationId: application.id,
+            applicationNumber: application.application_number,
+            borrowerUserId: application.user_id,
+            adminNotes,
+            customInterestRateBps,
+            customApprovedAmountCents,
+            customTenureMonths,
+          },
+        }, { transaction: t });
+      } catch (auditErr) {
+        logger.warn(`[adminLoanService] Audit error: ${auditErr.message}`);
+      }
+
+      // Automatically generate binding LoanOffer for the borrower with custom terms within the same transaction
       offer = await loanOfferService.generateOffer(applicationId, {
         interestRateBps: customInterestRateBps,
         approvedAmountCents: customApprovedAmountCents,
         tenureMonths: customTenureMonths,
+        transaction: t,
       });
-    } catch (offerErr) {
-      // Manual saga rollback to prevent partial commit if offer generation fails
-      await db.LoanApplication.update(
-        { status: 'ADMIN_REVIEW_PENDING', underwriting_status: 'PENDING', approved_by_admin_id: null },
-        { where: { id: applicationId } }
-      );
-      throw new AppError(`Failed to generate binding loan offer: ${offerErr.message}`, STATUS_CODES.INTERNAL_SERVER_ERROR);
+    });
+
+    // Send Real-Time Notification & WebSocket push to Borrower
+    try {
+      const { default: notificationService } = await import('../notificationService.js');
+      const { default: websocketService } = await import('../websocketService.js');
+
+      const approvedPounds = (Number(offer.approved_amount) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2 });
+      const ratePct = (Number(offer.interest_rate_bps) / 100).toFixed(2);
+
+      await notificationService.createNotification({
+        user_id: application.user_id,
+        title: 'Loan Offer Available',
+        message: `Congratulations! Your loan application for £${approvedPounds} at ${ratePct}% APR has been approved. Review and sign your binding offer now.`,
+        type: 'loan',
+        action_url: `/app/loans/offer/${application.id}`,
+        metadata: {
+          applicationId: application.id,
+          offerId: offer.id,
+          approvedAmount: offer.approved_amount,
+          interestRateBps: offer.interest_rate_bps,
+        },
+      });
+
+      websocketService.sendToUser(application.user_id, {
+        type: 'LOAN_APPLICATION_UPDATED',
+        data: {
+          applicationId: application.id,
+          status: 'OFFER_GENERATED',
+          offerId: offer.id,
+        },
+      });
+    } catch (pushErr) {
+      logger.warn(`[adminLoanService] Push/Notification error on approval: ${pushErr.message}`);
     }
 
     return {
@@ -146,6 +177,36 @@ const adminLoanService = {
       });
     } catch (auditErr) {
       logger.warn(`[adminLoanService] Audit error: ${auditErr.message}`);
+    }
+
+    // Send Real-Time Notification & WebSocket push to Borrower
+    try {
+      const { default: notificationService } = await import('../notificationService.js');
+      const { default: websocketService } = await import('../websocketService.js');
+
+      await notificationService.createNotification({
+        user_id: application.user_id,
+        title: 'Loan Application Update',
+        message: `Your loan application (#${application.application_number}) could not be approved at this time: ${finalReason}`,
+        type: 'loan',
+        action_url: `/app/loans/status/${application.id}`,
+        metadata: {
+          applicationId: application.id,
+          status: 'REJECTED',
+          reason: finalReason,
+        },
+      });
+
+      websocketService.sendToUser(application.user_id, {
+        type: 'LOAN_APPLICATION_UPDATED',
+        data: {
+          applicationId: application.id,
+          status: 'REJECTED',
+          reason: finalReason,
+        },
+      });
+    } catch (pushErr) {
+      logger.warn(`[adminLoanService] Push/Notification error on rejection: ${pushErr.message}`);
     }
 
     return application;

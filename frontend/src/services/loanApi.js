@@ -58,12 +58,27 @@ export const loanApi = {
     return (await res.json()).data;
   },
 
-  acceptOffer: async (id, offerId) => {
-    const res = await fetch(`${API_URL}/applications/${id}/accept-offer`, {
+  setupOfferAutopay: async (id, offerId) => {
+    const res = await fetch(`${API_URL}/applications/${id}/offers/${offerId}/setup-autopay`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify({ offerId }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Failed to initiate AutoPay mandate setup');
+    }
+    return (await res.json()).data;
+  },
+
+  acceptOffer: async (id, offerId, options = {}) => {
+    const consentId = typeof options === 'string' ? options : (options?.consentId || options?.consent_id);
+    const res = await fetch(`${API_URL}/applications/${id}/accept-offer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ offerId, consent_id: consentId }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));

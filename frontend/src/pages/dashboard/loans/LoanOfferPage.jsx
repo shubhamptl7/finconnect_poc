@@ -1,19 +1,24 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { usePlaidLink } from 'react-plaid-link'
 import { motion } from 'framer-motion'
-import { ShieldCheck, CheckCircle2, ArrowRight, Activity, Calendar, Lock, ChevronLeft, Landmark, FileCheck } from 'lucide-react'
+import { ShieldCheck, CheckCircle2, ArrowRight, Activity, Calendar, Lock, ChevronLeft, Landmark, FileCheck, Check } from 'lucide-react'
 import { AppLayout, BreadcrumbBar } from '@/components/layout/AppLayout'
 import { Card, Button, Badge } from '@/components/ui'
 import { loanApi } from '@/services/loanApi'
 import { formatDate, cn, formatCurrency } from '@/lib/utils'
 import { formatPence } from '@/lib/currencyFormatters'
+import { useNotifications } from '@/hooks/useNotifications'
 
 export default function LoanOfferPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { addToast } = useNotifications()
   const [app, setApp] = useState(null)
   const [loading, setLoading] = useState(true)
   const [accepting, setAccepting] = useState(false)
+  const [linkToken, setLinkToken] = useState(null)
+  const [currentConsentId, setCurrentConsentId] = useState(null)
 
   const fetchOffer = async () => {
     try {
@@ -30,15 +35,68 @@ export default function LoanOfferPage() {
     fetchOffer()
   }, [id])
 
-  const handleAccept = async () => {
+  const { open, ready } = usePlaidLink({
+    token: linkToken,
+    onSuccess: async () => {
+      setAccepting(true)
+      try {
+        await loanApi.acceptOffer(app.id, app.offer.id, { consentId: currentConsentId })
+        addToast({
+          title: 'Loan Disbursed & AutoPay Active',
+          message: 'Your repayment mandate was authorized and loan funds have been disbursed to your account.',
+          type: 'success',
+        })
+        navigate(`/app/emi/${app.id}`)
+      } catch (err) {
+        addToast({
+          title: 'Acceptance Error',
+          message: err.message || 'Failed to complete loan acceptance',
+          type: 'error',
+        })
+        fetchOffer()
+      } finally {
+        setAccepting(false)
+        setLinkToken(null)
+        setCurrentConsentId(null)
+      }
+    },
+    onExit: (err) => {
+      setAccepting(false)
+      setLinkToken(null)
+      setCurrentConsentId(null)
+      if (err) {
+        addToast({
+          title: 'Mandate Authorization Cancelled',
+          message: err.message || 'Bank mandate authorization was cancelled. Funds have not been disbursed.',
+          type: 'warning',
+        })
+      }
+    },
+  })
+
+  useEffect(() => {
+    if (ready && linkToken) {
+      open()
+    }
+  }, [ready, open, linkToken])
+
+  const handleStartAcceptance = async () => {
     if (!app?.offer?.id) return
     setAccepting(true)
     try {
-      await loanApi.acceptOffer(app.id, app.offer.id)
-      fetchOffer()
+      const res = await loanApi.setupOfferAutopay(app.id, app.offer.id)
+      if (res?.link_token && res?.consent_id) {
+        setCurrentConsentId(res.consent_id)
+        setLinkToken(res.link_token)
+      } else {
+        throw new Error('Failed to obtain bank mandate authorization token')
+      }
     } catch (err) {
-      alert(err.message || 'Failed to accept loan offer')
-    } finally {
+      addToast({
+        title: 'AutoPay Setup Error',
+        message: err.message || 'Failed to initialize AutoPay mandate setup',
+        type: 'error',
+      })
       setAccepting(false)
     }
   }
@@ -177,21 +235,40 @@ export default function LoanOfferPage() {
                         </h4>
                         <p className="text-xs text-emerald-700 mt-0.5">
                           {app.status === 'DISBURSED'
-                            ? `Funds successfully disbursed on ${formatDate(app.updatedAt || new Date())}.`
+                            ? `Funds successfully disbursed on ${formatDate(app.updatedAt || new Date())}. AutoPay is active.`
                             : `Signed on ${formatDate(offer.accepted_at || new Date())}. Funds queued for disbursement.`}
                         </p>
                       </div>
                     </div>
+                    <Button
+                      onClick={() => navigate(`/app/emi/${app.id}`)}
+                      size="sm"
+                      className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs"
+                    >
+                      View Servicing & AutoPay
+                    </Button>
                   </div>
                 ) : (
-                  <Button
-                    onClick={handleAccept}
-                    disabled={accepting}
-                    className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm flex items-center justify-center gap-2 rounded-xl cursor-pointer"
-                  >
-                    {accepting && <Activity size={16} className="animate-spin" />}
-                    Electronically Sign & Accept Binding Agreement <ArrowRight size={16} />
-                  </Button>
+                  <div className="space-y-3">
+                    <div className="p-3.5 bg-teal-50/80 border border-teal-200/80 rounded-xl text-xs text-teal-900 flex items-start gap-2.5">
+                      <ShieldCheck size={18} className="text-teal-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold">Mandate-First Repayment Security</p>
+                        <p className="text-slate-600 text-[11px] mt-0.5 leading-relaxed">
+                          To protect borrower credit standing, you will authorize your monthly Variable Recurring Payment (VRP) AutoPay mandate of <strong className="text-slate-900">{formatCurrency(offer.estimated_emi)}</strong> directly with your linked bank. Capital is immediately disbursed once authorized.
+                        </p>
+                      </div>
+                    </div>
+
+                    <Button
+                      onClick={handleStartAcceptance}
+                      disabled={accepting}
+                      className="w-full py-4 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-sm flex items-center justify-center gap-2 rounded-xl cursor-pointer"
+                    >
+                      {accepting ? <Activity size={16} className="animate-spin" /> : <Lock size={15} />}
+                      {accepting ? 'Connecting to Bank Mandate...' : 'Authorize AutoPay & Accept Loan'} <ArrowRight size={16} />
+                    </Button>
+                  </div>
                 )}
               </div>
             </Card>

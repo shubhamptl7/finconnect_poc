@@ -79,8 +79,21 @@ const loanEligibilityService = {
       estimatedEmiCents = Math.round(requestedAmountCents / tenureMonths);
     }
 
-    const totalRepaymentCents = estimatedEmiCents * tenureMonths;
-    const totalInterestCents = totalRepaymentCents - requestedAmountCents;
+    // Exact reducing-balance amortization interest summation matching loanScheduleService
+    let remaining = requestedAmountCents;
+    let exactTotalInterestCents = 0;
+    for (let i = 1; i <= tenureMonths; i++) {
+      const interestMonth = Math.round(remaining * monthlyRate);
+      let principalMonth = estimatedEmiCents - interestMonth;
+      if (i === tenureMonths) {
+        principalMonth = remaining;
+      }
+      remaining -= principalMonth;
+      exactTotalInterestCents += interestMonth;
+    }
+
+    const totalInterestCents = exactTotalInterestCents;
+    const totalRepaymentCents = requestedAmountCents + totalInterestCents;
 
     // Calculate DTI Ratio: DTI = (Existing Debt + Proposed EMI) / Monthly Income
     const totalMonthlyDebtCents = existingObligationsCents + estimatedEmiCents;

@@ -326,6 +326,25 @@ const loanApplicationService = {
       logger.warn(`[loanApplicationService] Audit log error: ${auditErr.message}`);
     }
 
+    // Send Real-Time Notification to Borrower
+    try {
+      const { default: notificationService } = await import('../notificationService.js');
+      await notificationService.createNotification({
+        user_id: userId,
+        title: `Loan Application Submitted (#${application.application_number})`,
+        message: `Your loan application for £${(Number(application.requested_amount) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2 })} has been received. Open banking affordability underwriting is in progress.`,
+        type: 'loan',
+        action_url: `/app/loans/status/${application.id}`,
+        metadata: {
+          applicationId: application.id,
+          applicationNumber: application.application_number,
+          requestedAmount: application.requested_amount,
+        },
+      });
+    } catch (notifErr) {
+      logger.warn(`[loanApplicationService] Notification warning: ${notifErr.message}`);
+    }
+
     // Step 3: Asynchronously fetch Plaid Lending Data and run Underwriting to prevent API blocking
     setTimeout(async () => {
       try {

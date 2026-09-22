@@ -7,6 +7,14 @@ const defineNotification = (sequelize, DataTypes) => {
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true,
       },
+      user_id: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: {
+          model: 'users',
+          key: 'id',
+        },
+      },
       title: {
         type: DataTypes.STRING(255),
         allowNull: false,
@@ -22,6 +30,14 @@ const defineNotification = (sequelize, DataTypes) => {
       is_read: {
         type: DataTypes.BOOLEAN,
         defaultValue: false,
+      },
+      action_url: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+      },
+      metadata: {
+        type: DataTypes.JSONB,
+        allowNull: true,
       },
     },
     {

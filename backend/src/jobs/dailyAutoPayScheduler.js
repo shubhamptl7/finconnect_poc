@@ -1,8 +1,8 @@
-import db from '../models/index.js';
-import logger from '../config/logger.js';
-import { loanAutopayService } from '../services/loan/loanAutopayService.js';
 import { Op } from 'sequelize';
-import { v4 as uuidv4 } from 'uuid';
+
+import logger from '../config/logger.js';
+import db from '../models/index.js';
+import { loanAutopayService } from '../services/loan/loanAutopayService.js';
 
 /**
  * DAILY AUTOPAY SCHEDULER
@@ -58,6 +58,19 @@ export const dailyAutoPayScheduler = {
 
           if (!auth) {
             // User does not have AutoPay enabled. They must pay manually.
+            continue;
+          }
+
+          // DEDUPLICATION: Prevent double-debiting if a payment is already in flight for this loan
+          const existingPendingPayment = await db.LoanPayment.findOne({
+            where: {
+              loan_id: schedule.loan_id,
+              status: 'PENDING'
+            }
+          });
+
+          if (existingPendingPayment) {
+            logger.info(`[DailyAutoPayScheduler] In-flight payment ${existingPendingPayment.id} already pending for loan ${schedule.loan_id}. Skipping sweep to prevent double-debit.`);
             continue;
           }
 

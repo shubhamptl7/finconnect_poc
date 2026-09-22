@@ -1,4 +1,5 @@
-import { loanApplicationService, loanOfferService, loanOriginationService } from '../../services/loan/index.js';
+import { loanApplicationService, loanOriginationService } from '../../services/loan/index.js';
+import { loanAutopayService } from '../../services/loan/loanAutopayService.js';
 import STATUS_CODES from '../../config/constants.js';
 import { successResponse } from '../../utils/response.js';
 import logger from '../../config/logger.js';
@@ -91,11 +92,29 @@ export const submitApplication = async (request, reply) => {
   }
 };
 
+export const setupOfferAutopay = async (request, reply) => {
+  try {
+    const { id, offerId } = request.params;
+    const targetOfferId = offerId || request.body?.offerId;
+    const result = await loanAutopayService.setupOfferAutopayConsent(request.user.id, id, targetOfferId);
+    return successResponse({
+      reply,
+      statusCode: STATUS_CODES.OK,
+      message: 'AutoPay VRP consent and link token generated successfully',
+      data: result,
+    });
+  } catch (error) {
+    logger.error(`setupOfferAutopay error: ${error.message}`);
+    throw error;
+  }
+};
+
 export const acceptOffer = async (request, reply) => {
   try {
     const { id, offerId } = request.params;
     const targetOfferId = offerId || request.body?.offerId;
-    const result = await loanOriginationService.acceptOfferAndOriginate(request.user.id, id, targetOfferId);
+    const consentId = request.body?.consent_id || request.body?.consentId;
+    const result = await loanOriginationService.acceptOfferAndOriginate(request.user.id, id, targetOfferId, { consentId });
     return successResponse({
       reply,
       statusCode: STATUS_CODES.OK,

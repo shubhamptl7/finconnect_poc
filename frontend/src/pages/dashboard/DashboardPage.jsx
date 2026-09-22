@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -107,33 +107,63 @@ function TotalBalanceHero() {
 
 // ─── Cash Flow Chart ───────────────────────────────────────
 function SpendingChart() {
-  const { transactions } = useApp()
+  const { transactions, isDecryptingTransactions } = useApp()
 
   const chartData = useMemo(() => {
-    // Group transactions by month or generate standard 6-month trend
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun']
-    const monthlySummary = months.map((m, idx) => ({
-      month: m,
-      income: 1200 + (idx * 150) + (idx % 2 === 0 ? 300 : 0),
-      expenses: 650 + (idx * 80) + (idx % 3 === 0 ? 140 : 0),
-    }))
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    const now = new Date()
+    const monthsMap = new Map()
+    const monthsList = []
 
-    if (transactions.length > 0) {
-      // Calculate real totals if available
-      let incomeSum = 0
-      let expenseSum = 0
-      transactions.forEach(t => {
-        const amt = Math.abs(parseFloat(t.amount || 0))
-        if (t.type === 'credit') incomeSum += amt
-        else expenseSum += amt
-      })
-      if (incomeSum > 0 || expenseSum > 0) {
-        monthlySummary[5].income = incomeSum > 0 ? incomeSum / 1000 : monthlySummary[5].income
-        monthlySummary[5].expenses = expenseSum > 0 ? expenseSum / 1000 : monthlySummary[5].expenses
+    // Build the dynamic 6-month calendar window ending with the current month
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const entry = {
+        key,
+        month: monthNames[d.getMonth()],
+        income: 0,
+        expenses: 0,
       }
+      monthsMap.set(key, entry)
+      monthsList.push(entry)
     }
-    return monthlySummary
+
+    // Aggregate real transaction amounts into the respective months
+    if (transactions && transactions.length > 0) {
+      transactions.forEach(t => {
+        const rawDate = t.transaction_date || t.date
+        if (!rawDate) return
+        const d = new Date(rawDate)
+        if (isNaN(d.getTime())) return
+
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+        const bucket = monthsMap.get(key)
+        if (bucket) {
+          const amt = Math.abs(parseFloat(t.amount || 0))
+          if (!isNaN(amt) && amt > 0) {
+            if (t.type === 'credit') {
+              bucket.income += amt
+            } else {
+              bucket.expenses += amt
+            }
+          }
+        }
+      })
+
+      // Round each month's values cleanly to 2 decimal places
+      monthsList.forEach(m => {
+        m.income = Math.round(m.income * 100) / 100
+        m.expenses = Math.round(m.expenses * 100) / 100
+      })
+    }
+
+    return monthsList
   }, [transactions])
+
+  const hasActivity = useMemo(() => {
+    return chartData.some(m => m.income > 0 || m.expenses > 0)
+  }, [chartData])
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null
@@ -144,12 +174,12 @@ function SpendingChart() {
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-brand-600" />
             <span className="text-slate-500 font-medium">Income</span>
-            <span className="ml-auto font-bold text-slate-900 tabular-nums">{formatCurrency(payload[0]?.value)}</span>
+            <span className="ml-auto font-bold text-slate-900 tabular-nums">{formatCurrency(payload[0]?.value || 0)}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-rose-500" />
             <span className="text-slate-500 font-medium">Expenses</span>
-            <span className="ml-auto font-bold text-slate-900 tabular-nums">{formatCurrency(payload[1]?.value)}</span>
+            <span className="ml-auto font-bold text-slate-900 tabular-nums">{formatCurrency(payload[1]?.value || 0)}</span>
           </div>
         </div>
       </div>
@@ -161,7 +191,7 @@ function SpendingChart() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h3 className="text-base font-bold text-slate-900" style={{ fontFamily: 'Geist, IBM Plex Sans, system-ui' }}>Cash Flow Trend</h3>
-          <p className="text-xs text-slate-400 mt-0.5">Income vs spending trajectory across all connected accounts</p>
+          <p className="text-xs text-slate-400 mt-0.5">Real-time income vs spending trajectory across all connected accounts</p>
         </div>
         <div className="flex items-center gap-4 text-xs font-semibold">
           <span className="flex items-center gap-1.5 text-slate-600">
@@ -174,7 +204,7 @@ function SpendingChart() {
       </div>
 
       <ResponsiveContainer width="100%" height={220}>
-        <AreaChart data={chartData} margin={{ top: 8, right: 0, left: -20, bottom: 0 }}>
+        <AreaChart data={chartData} margin={{ top: 8, right: 10, left: -10, bottom: 0 }}>
           <defs>
             <linearGradient id="incomeGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#0F766E" stopOpacity={0.16} />
@@ -187,12 +217,23 @@ function SpendingChart() {
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
           <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#64748B', fontFamily: 'IBM Plex Sans' }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fontSize: 11, fill: '#64748B', fontFamily: 'IBM Plex Sans' }} axisLine={false} tickLine={false} />
+          <YAxis
+            tick={{ fontSize: 11, fill: '#64748B', fontFamily: 'IBM Plex Sans' }}
+            axisLine={false}
+            tickLine={false}
+            tickFormatter={(v) => v >= 1000 ? `£${(v / 1000).toFixed(1).replace(/\.0$/, '')}k` : `£${v}`}
+          />
           <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#E2E8F0', strokeWidth: 1 }} />
           <Area type="monotone" dataKey="income" stroke="#0F766E" strokeWidth={2.5} fill="url(#incomeGrad)" dot={false} activeDot={{ fill: '#0F766E', strokeWidth: 0, r: 5 }} />
           <Area type="monotone" dataKey="expenses" stroke="#F43F5E" strokeWidth={2.5} fill="url(#expenseGrad)" dot={false} activeDot={{ fill: '#F43F5E', strokeWidth: 0, r: 5 }} />
         </AreaChart>
       </ResponsiveContainer>
+
+      {!hasActivity && !isDecryptingTransactions && (
+        <p className="text-[11px] text-slate-400 text-center mt-3">
+          No transactions recorded in the last 6 months. New payments and transfers will reflect here live.
+        </p>
+      )}
     </Card>
   )
 }
@@ -202,92 +243,99 @@ function CategoryBreakdown() {
   const { transactions } = useApp()
 
   const categories = useMemo(() => {
-    const defaultCats = [
-      { name: 'Housing & Utilities', value: 450, color: '#0F766E' },
-      { name: 'Shopping & Goods',    value: 280, color: '#059669' },
-      { name: 'Transport & Travel',  value: 160, color: '#D97706' },
-      { name: 'Dining & Services',   value: 120, color: '#8B5CF6' },
-    ]
+    if (!transactions || transactions.length === 0) return []
 
-    if (transactions.length > 0) {
-      const counts = {}
-      transactions.forEach(t => {
-        if (t.category) {
-          const amt = Math.abs(parseFloat(t.amount || 0))
-          counts[t.category] = (counts[t.category] || 0) + (amt || 100)
+    const counts = {}
+    transactions.forEach(t => {
+      // Aggregate real debit/expense amounts by category
+      if (t.type === 'debit' || !t.type) {
+        const cat = t.category || 'General & Other'
+        const amt = Math.abs(parseFloat(t.amount || 0))
+        if (!isNaN(amt) && amt > 0) {
+          counts[cat] = (counts[cat] || 0) + amt
         }
-      })
-      const keys = Object.keys(counts)
-      if (keys.length > 0) {
-        const colors = ['#0F766E', '#059669', '#D97706', '#8B5CF6', '#EC4899']
-        return keys.slice(0, 4).map((k, i) => ({
-          name: k,
-          value: Math.round(counts[k]),
-          color: colors[i % colors.length]
-        }))
       }
-    }
-    return defaultCats
+    })
+
+    const keys = Object.keys(counts).sort((a, b) => counts[b] - counts[a])
+    if (keys.length === 0) return []
+
+    const colors = ['#0F766E', '#059669', '#D97706', '#8B5CF6', '#EC4899', '#3B82F6']
+    return keys.slice(0, 5).map((k, i) => ({
+      name: k,
+      value: Math.round(counts[k] * 100) / 100,
+      color: colors[i % colors.length]
+    }))
   }, [transactions])
 
-  const total = categories.reduce((s, c) => s + c.value, 0)
+  const total = useMemo(() => categories.reduce((s, c) => s + c.value, 0), [categories])
 
   return (
     <Card className="p-6">
       <div className="flex items-center justify-between mb-5">
         <h3 className="text-base font-bold text-slate-900" style={{ fontFamily: 'Geist, IBM Plex Sans, system-ui' }}>Spending Allocation</h3>
-        <span className="text-xs text-slate-400 font-semibold">Current Month</span>
+        <span className="text-xs text-slate-400 font-semibold">Active Period</span>
       </div>
 
-      <div className="flex justify-center mb-5">
-        <div className="relative">
-          <PieChart width={140} height={140}>
-            <Pie
-              data={categories} cx="50%" cy="50%"
-              innerRadius={44} outerRadius={66}
-              paddingAngle={3} dataKey="value" strokeWidth={0}
-            >
-              {categories.map((entry, i) => (
-                <Cell key={i} fill={entry.color} />
-              ))}
-            </Pie>
-          </PieChart>
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Total</span>
-            <span className="text-xs font-black text-slate-900 tabular-nums">{formatCurrency(total)}</span>
-          </div>
+      {categories.length === 0 ? (
+        <div className="py-10 text-center text-slate-400 text-xs">
+          <Wallet size={24} className="mx-auto mb-2 opacity-50 text-slate-400" />
+          <p className="font-semibold text-slate-600">No spending categorized yet</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Categorized debit transactions will appear here.</p>
         </div>
-      </div>
-
-      <div className="space-y-3">
-        {categories.map((cat, i) => (
-          <div key={i}>
-            <div className="flex items-center justify-between mb-1.5 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: cat.color }} />
-                <span className="font-semibold text-slate-700">{cat.name}</span>
+      ) : (
+        <>
+          <div className="flex justify-center mb-5">
+            <div className="relative">
+              <PieChart width={140} height={140}>
+                <Pie
+                  data={categories} cx="50%" cy="50%"
+                  innerRadius={44} outerRadius={66}
+                  paddingAngle={3} dataKey="value" strokeWidth={0}
+                >
+                  {categories.map((entry, i) => (
+                    <Cell key={i} fill={entry.color} />
+                  ))}
+                </Pie>
+              </PieChart>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Total</span>
+                <span className="text-xs font-black text-slate-900 tabular-nums">{formatCurrency(total)}</span>
               </div>
-              <span className="font-mono font-bold text-slate-900">{formatCurrency(cat.value)}</span>
-            </div>
-            <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-              <motion.div
-                className="h-full rounded-full"
-                style={{ background: cat.color }}
-                initial={{ width: 0 }}
-                animate={{ width: `${(cat.value / (total || 1)) * 100}%` }}
-                transition={{ duration: 0.6, delay: i * 0.05, ease: [0.4, 0, 0.2, 1] }}
-              />
             </div>
           </div>
-        ))}
-      </div>
+
+          <div className="space-y-3">
+            {categories.map((cat, i) => (
+              <div key={i}>
+                <div className="flex items-center justify-between mb-1.5 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: cat.color }} />
+                    <span className="font-semibold text-slate-700">{cat.name}</span>
+                  </div>
+                  <span className="font-mono font-bold text-slate-900">{formatCurrency(cat.value)}</span>
+                </div>
+                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <motion.div
+                    className="h-full rounded-full"
+                    style={{ background: cat.color }}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${(cat.value / (total || 1)) * 100}%` }}
+                    transition={{ duration: 0.6, delay: i * 0.05, ease: [0.4, 0, 0.2, 1] }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </Card>
   )
 }
 
 // ─── Recent Activity Feed ──────────────────────────────────
 function RecentActivityFeed() {
-  const { transactions } = useApp()
+  const { transactions, isDecryptingTransactions } = useApp()
   const recent = transactions.slice(0, 5)
 
   return (
@@ -302,7 +350,13 @@ function RecentActivityFeed() {
         </Link>
       </div>
 
-      {recent.length === 0 ? (
+      {isDecryptingTransactions && recent.length === 0 ? (
+        <div className="p-8 text-center text-slate-400 text-xs">
+          <RefreshCw size={22} className="mx-auto mb-2 animate-spin text-brand-600" />
+          <p className="font-semibold text-slate-600">Loading recent transactions...</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Decrypting your secure Open Banking records.</p>
+        </div>
+      ) : recent.length === 0 ? (
         <div className="p-8 text-center text-slate-400 text-xs">
           <Receipt size={24} className="mx-auto mb-2 opacity-50" />
           <p className="font-semibold text-slate-600">No transactions recorded yet</p>
@@ -429,9 +483,13 @@ function SecurityStatusCard() {
 
 // ─── Main Dashboard Page ───────────────────────────────────
 export default function DashboardPage() {
-  const { user } = useApp()
+  const { user, fetchTransactions } = useApp()
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+
+  useEffect(() => {
+    fetchTransactions(50, 0)
+  }, [fetchTransactions])
 
   return (
     <AppLayout

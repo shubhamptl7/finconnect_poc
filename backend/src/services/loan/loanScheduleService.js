@@ -1,6 +1,5 @@
-import db from '../../models/index.js';
-import AppError from '../../utils/appError.js';
 import logger from '../../config/logger.js';
+import db from '../../models/index.js';
 
 export const loanScheduleService = {
   /**
@@ -11,7 +10,7 @@ export const loanScheduleService = {
    * @param {number} principalMinor - Total principal in minor units (e.g., 500000 for £5k)
    * @param {number} termMonths - e.g., 12
    * @param {number} aprBps - Annual Percentage Rate in basis points (e.g., 500 = 5.00%)
-   * @param {Date} startDate - When the first payment is due
+   * @param {Date} startDateInput - When the first payment is due
    */
   async generateAmortizationSchedule(loanId, principalMinor, termMonths, aprBps, startDateInput = new Date()) {
     logger.info(`[LoanScheduleService] Generating schedule for loan ${loanId} - Principal: ${principalMinor}`);
@@ -22,7 +21,7 @@ export const loanScheduleService = {
     const startDate = (startDateInput && !isNaN(new Date(startDateInput).getTime())) ? new Date(startDateInput) : new Date();
 
     const monthlyRate = (aprNum / 10000) / 12; // e.g. 0.05 / 12
-    let emiMinor = 0;
+    let emiMinor;
 
     if (monthlyRate === 0) {
       emiMinor = Math.round(principalNum / termNum);
@@ -34,19 +33,16 @@ export const loanScheduleService = {
 
     let remainingPrincipal = principalNum;
     const schedules = [];
-    
-    // First payment is due 1 month from today
-    let currentDueDate = new Date(startDate);
 
     for (let i = 1; i <= termNum; i++) {
-      let nextMonthDate = new Date(startDate);
+      const nextMonthDate = new Date(startDate);
       nextMonthDate.setMonth(startDate.getMonth() + i);
       
       // Handle end-of-month overflow (e.g., Jan 31 -> Mar 3 -> Feb 28)
       if (nextMonthDate.getMonth() !== ((startDate.getMonth() + i) % 12)) {
         nextMonthDate.setDate(0); 
       }
-      currentDueDate = nextMonthDate;
+      const currentDueDate = nextMonthDate;
 
       // Interest for this month: remaining principal * monthly rate
       const interestThisMonth = Math.round(remainingPrincipal * monthlyRate);
@@ -55,7 +51,7 @@ export const loanScheduleService = {
       let scheduledAmountThisMonth = emiMinor;
 
       // Adjust the final month for rounding differences
-      if (i === termMonths) {
+      if (i === termNum) {
         principalThisMonth = remainingPrincipal;
         scheduledAmountThisMonth = principalThisMonth + interestThisMonth;
       }
