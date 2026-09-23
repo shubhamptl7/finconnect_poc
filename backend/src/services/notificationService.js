@@ -3,7 +3,7 @@ import logger from '../config/logger.js';
 
 import websocketService from './websocketService.js';
 
-const EMOJI_REGEX = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{1FA00}-\u{1FAFF}\u{200D}\u{FE0F}]/gu;
+const EMOJI_REGEX = /\p{Extended_Pictographic}|\u200D|\uFE0F/gu;
 
 function stripEmojis(text) {
   if (!text || typeof text !== 'string') return text;
@@ -16,7 +16,7 @@ const notificationService = {
    * @param {Object} params
    * @param {string} params.user_id
    * @param {string} params.title
-   * @param {string} params.message 
+   * @param {string} params.message
    * @param {string} [params.type]
    * @param {Object} [options] Sequelize transaction options
    */
@@ -65,8 +65,8 @@ const notificationService = {
   },
 
   async getNotifications(userId, options = {}) {
-    const limit = typeof options === 'number' ? options : (options.limit || 50);
-    const offset = typeof options === 'object' ? (options.offset || 0) : 0;
+    const limit = typeof options === 'number' ? options : options.limit || 50;
+    const offset = typeof options === 'object' ? options.offset || 0 : 0;
     const type = typeof options === 'object' ? options.type : null;
     const unreadOnly = typeof options === 'object' ? options.unreadOnly : false;
 
@@ -107,11 +107,8 @@ const notificationService = {
   },
 
   async markAllAsRead(userId) {
-    await db.Notification.update(
-      { is_read: true },
-      { where: { user_id: userId, is_read: false } }
-    );
-  }
+    await db.Notification.update({ is_read: true }, { where: { user_id: userId, is_read: false } });
+  },
 };
 
 export default notificationService;

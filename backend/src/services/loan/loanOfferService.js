@@ -24,12 +24,18 @@ const loanOfferService = {
     }
 
     const currency = (application.requested_currency || 'GBP').toUpperCase();
-    const approvedAmountCents = options.approvedAmountCents ? Number(options.approvedAmountCents) : Number(application.requested_amount);
-    const tenureMonths = options.tenureMonths ? Number(options.tenureMonths) : Number(application.requested_tenure_months);
+    const approvedAmountCents = options.approvedAmountCents
+      ? Number(options.approvedAmountCents)
+      : Number(application.requested_amount);
+    const tenureMonths = options.tenureMonths
+      ? Number(options.tenureMonths)
+      : Number(application.requested_tenure_months);
 
     // Risk-based interest rate calculation within 8.00% (800 BPS) to 24.00% (2400 BPS) APR range
     let rateBps = options.interestRateBps ? Number(options.interestRateBps) : null;
-    if (!rateBps) {
+    if (rateBps) {
+      rateBps = Math.min(2400, Math.max(800, rateBps));
+    } else {
       const dtiBps = Number(application.verified_dti_bps || 2000);
       // Risk ratio: 0.0 to 1.0 based on DTI relative to 45.0% policy cap
       const riskRatio = Math.min(1.0, Math.max(0.0, dtiBps / 4500));
@@ -38,14 +44,20 @@ const loanOfferService = {
     }
 
     // Calculate exact decimal-safe financial figures
-    const eligibility = await loanEligibilityService.checkEligibility(application.user_id, {
-      requestedAmountCents: approvedAmountCents,
-      tenureMonths,
-      monthlyIncomeCents: Number(application.verified_monthly_income || application.monthly_income || 500000),
-      existingObligationsCents: Number(application.verified_monthly_debt || 0),
-      currency,
-      interestRateBps: rateBps,
-    });
+    const eligibility = await loanEligibilityService.checkEligibility(
+      application.user_id,
+      {
+        requestedAmountCents: approvedAmountCents,
+        tenureMonths,
+        monthlyIncomeCents: Number(
+          application.verified_monthly_income || application.monthly_income || 500000
+        ),
+        existingObligationsCents: Number(application.verified_monthly_debt || 0),
+        currency,
+        interestRateBps: rateBps,
+      },
+      { transaction: txn }
+    );
 
     // Check if offer already exists for application
     let offer = await db.LoanOffer.findOne({
@@ -66,36 +78,50 @@ const loanOfferService = {
       offer.expires_at = expiresAt;
       await offer.save(txn ? { transaction: txn } : undefined);
     } else {
-      offer = await db.LoanOffer.create({
-        application_id: applicationId,
-        user_id: application.user_id,
-        approved_amount: approvedAmountCents,
-        interest_rate_bps: rateBps,
-        tenure_months: tenureMonths,
-        estimated_emi: eligibility.estimatedEmiCents,
-        total_interest: eligibility.totalInterestCents,
-        total_repayment: eligibility.totalRepaymentCents,
-        status: 'OFFERED',
-        expires_at: expiresAt,
-      }, txn ? { transaction: txn } : undefined);
+      offer = await db.LoanOffer.create(
+        {
+          application_id: applicationId,
+          user_id: application.user_id,
+          approved_amount: approvedAmountCents,
+          interest_rate_bps: rateBps,
+          tenure_months: tenureMonths,
+          estimated_emi: eligibility.estimatedEmiCents,
+          total_interest: eligibility.totalInterestCents,
+          total_repayment: eligibility.totalRepaymentCents,
+          status: 'OFFERED',
+          expires_at: expiresAt,
+        },
+        txn ? { transaction: txn } : undefined
+      );
     }
 
-    application.status = 'OFFER_GENERATED';
-    await application.save(txn ? { transaction: txn } : undefined);
+    // Only advance application status to OFFER_GENERATED if it is in an earlier / eligible state
+    if (
+      !options.preserveStatus &&
+      (application.status === 'APPROVED' ||
+        application.status === 'OFFER_GENERATED' ||
+        application.status === 'UNDERWRITING')
+    ) {
+      application.status = 'OFFER_GENERATED';
+      await application.save(txn ? { transaction: txn } : undefined);
+    }
 
     // Log Audit Event
     try {
-      await db.AuditLog.create({
-        user_id: application.user_id,
-        action: 'LOAN_OFFER_CREATED',
-        metadata: {
-          applicationId: application.id,
-          offerId: offer.id,
-          approvedAmountCents,
-          estimatedEmiCents: eligibility.estimatedEmiCents,
-          interestRateBps: rateBps,
+      await db.AuditLog.create(
+        {
+          user_id: application.user_id,
+          action: 'LOAN_OFFER_CREATED',
+          metadata: {
+            applicationId: application.id,
+            offerId: offer.id,
+            approvedAmountCents,
+            estimatedEmiCents: eligibility.estimatedEmiCents,
+            interestRateBps: rateBps,
+          },
         },
-      }, txn ? { transaction: txn } : undefined);
+        txn ? { transaction: txn } : undefined
+      );
     } catch (auditErr) {
       logger.warn(`[loanOfferService] Audit log error: ${auditErr.message}`);
     }
@@ -105,9 +131,13 @@ const loanOfferService = {
 
   /**
    * Borrower accepts binding LoanOffer
+   * @deprecated Superseded by loanOriginationService.acceptOfferAndOriginate.
+   * Kept for internal/backward compatibility.
    */
   async acceptOffer(userId, applicationId, offerId) {
-    logger.info(`[loanOfferService] User ${userId} accepting offer ${offerId} for application ${applicationId}`);
+    logger.info(
+      `[loanOfferService] User ${userId} accepting offer ${offerId} for application ${applicationId}`
+    );
 
     const application = await db.LoanApplication.findOne({
       where: { id: applicationId, user_id: userId },
@@ -118,7 +148,10 @@ const loanOfferService = {
     }
 
     if (['REJECTED', 'WITHDRAWN', 'CANCELLED'].includes(application.status)) {
-      throw new AppError(`Cannot accept offer for application in ${application.status} status`, STATUS_CODES.BAD_REQUEST);
+      throw new AppError(
+        `Cannot accept offer for application in ${application.status} status`,
+        STATUS_CODES.BAD_REQUEST
+      );
     }
 
     const offer = await db.LoanOffer.findOne({

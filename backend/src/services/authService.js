@@ -15,8 +15,10 @@ const authService = {
   async register(data, metadata = {}) {
     const { name, email, password, phone, dateOfBirth } = data;
     const normalizedEmail = email.trim().toLowerCase();
-    
-    const existingUser = await db.User.findOne({ where: { email_hash: generateSearchHash(normalizedEmail) } });
+
+    const existingUser = await db.User.findOne({
+      where: { email_hash: generateSearchHash(normalizedEmail) },
+    });
     if (existingUser) {
       throw new AppError('Email is already registered', STATUS_CODES.CONFLICT);
     }
@@ -28,8 +30,16 @@ const authService = {
       phone_number: phone || null,
       date_of_birth: dateOfBirth || null,
       is_email_verified: false,
-      e2ee_public_key: data.e2ee_public_key ? (typeof data.e2ee_public_key === 'string' ? data.e2ee_public_key : JSON.stringify(data.e2ee_public_key)) : null,
-      e2ee_key_backup: data.e2ee_key_backup ? (typeof data.e2ee_key_backup === 'string' ? data.e2ee_key_backup : JSON.stringify(data.e2ee_key_backup)) : null,
+      e2ee_public_key: data.e2ee_public_key
+        ? typeof data.e2ee_public_key === 'string'
+          ? data.e2ee_public_key
+          : JSON.stringify(data.e2ee_public_key)
+        : null,
+      e2ee_key_backup: data.e2ee_key_backup
+        ? typeof data.e2ee_key_backup === 'string'
+          ? data.e2ee_key_backup
+          : JSON.stringify(data.e2ee_key_backup)
+        : null,
     });
 
     // Generate email verification token
@@ -38,22 +48,22 @@ const authService = {
       user_id: newUser.id,
       token,
       type: 'email_verification',
-      expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
     });
 
     // Send verification email
     const verificationUrl = `${config.frontend_url}/auth/verify-email/${token}`;
     const emailHtml = await getEmailHTML('email_verification', {
       name: name,
-      url: verificationUrl
+      url: verificationUrl,
     });
-    
+
     await sendEmail(newUser.email, 'Verify your email for FinConnect', emailHtml);
 
     await db.AuditLog.create({
       user_id: newUser.id,
       action: 'user_registered',
-      metadata
+      metadata,
     });
 
     return newUser.toJSON();
@@ -61,15 +71,24 @@ const authService = {
 
   async login(email, password, metadata = {}) {
     const normalizedEmail = email.trim().toLowerCase();
-    const user = await db.User.findOne({ where: { email_hash: generateSearchHash(normalizedEmail) } });
+    const user = await db.User.findOne({
+      where: { email_hash: generateSearchHash(normalizedEmail) },
+    });
     if (!user) {
-      await db.AuditLog.create({ action: 'user_login_failed_not_found', metadata: { ...metadata, email: normalizedEmail } });
+      await db.AuditLog.create({
+        action: 'user_login_failed_not_found',
+        metadata: { ...metadata, email: normalizedEmail },
+      });
       throw new AppError('Invalid email or password', STATUS_CODES.UNAUTHORIZED);
     }
 
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      await db.AuditLog.create({ user_id: user.id, action: 'user_login_failed_password', metadata });
+      await db.AuditLog.create({
+        user_id: user.id,
+        action: 'user_login_failed_password',
+        metadata,
+      });
       throw new AppError('Invalid email or password', STATUS_CODES.UNAUTHORIZED);
     }
 
@@ -81,18 +100,22 @@ const authService = {
         user_id: user.id,
         token,
         type: 'email_verification',
-        expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
       });
 
       const verificationUrl = `${config.frontend_url}/auth/verify-email/${token}`;
       const emailHtml = await getEmailHTML('email_verification', {
         name: user.name,
-        url: verificationUrl
+        url: verificationUrl,
       });
-      
+
       await sendEmail(user.email, 'Verify your email for FinConnect', emailHtml);
 
-      await db.AuditLog.create({ user_id: user.id, action: 'user_login_blocked_unverified', metadata });
+      await db.AuditLog.create({
+        user_id: user.id,
+        action: 'user_login_blocked_unverified',
+        metadata,
+      });
 
       throw new AppError(
         'Please verify your email before logging in. A new verification link has been sent to your inbox.',
@@ -111,7 +134,11 @@ const authService = {
     }
 
     if (user.status === 'suspended') {
-      await db.AuditLog.create({ user_id: user.id, action: 'user_login_blocked_suspended', metadata });
+      await db.AuditLog.create({
+        user_id: user.id,
+        action: 'user_login_blocked_suspended',
+        metadata,
+      });
       throw new AppError('Account suspended. Please contact support.', STATUS_CODES.FORBIDDEN);
     }
 
@@ -147,7 +174,9 @@ const authService = {
 
   async forgotPassword(email, metadata = {}) {
     const normalizedEmail = email.trim().toLowerCase();
-    const user = await db.User.findOne({ where: { email_hash: generateSearchHash(normalizedEmail) } });
+    const user = await db.User.findOne({
+      where: { email_hash: generateSearchHash(normalizedEmail) },
+    });
 
     // Fail silently if user doesn't exist to prevent email enumeration
     if (!user) {
@@ -169,28 +198,35 @@ const authService = {
       user_id: user.id,
       token,
       type: 'password_reset',
-      expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+      expires_at: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
     });
 
     const resetUrl = `${config.frontend_url}/auth/reset-password/${token}`;
     logger.info(`[PASSWORD RESET] Generated reset link for ${user.email}: ${resetUrl}`);
     const emailHtml = await getEmailHTML('password_reset', {
       name: user.name,
-      url: resetUrl
+      url: resetUrl,
     });
-    
+
     await sendEmail(user.email, 'Password Reset Request', emailHtml);
-    await db.AuditLog.create({ user_id: user.id, action: 'user_password_reset_requested', metadata });
+    await db.AuditLog.create({
+      user_id: user.id,
+      action: 'user_password_reset_requested',
+      metadata,
+    });
   },
 
   async resetPassword(token, newPassword, confirmPassword, metadata = {}) {
     if (newPassword !== confirmPassword) {
       throw new AppError('Passwords do not match', STATUS_CODES.BAD_REQUEST);
     }
-    
+
     // Strict regex validation for new password just like frontend
     if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z\d]).{8,16}$/.test(newPassword)) {
-      throw new AppError('Password must be 8-16 characters and contain uppercase, lowercase, number, and special character.', STATUS_CODES.BAD_REQUEST);
+      throw new AppError(
+        'Password must be 8-16 characters and contain uppercase, lowercase, number, and special character.',
+        STATUS_CODES.BAD_REQUEST
+      );
     }
 
     const verificationToken = await db.VerificationToken.findOne({

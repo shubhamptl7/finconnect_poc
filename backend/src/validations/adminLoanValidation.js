@@ -13,7 +13,7 @@ export const approveLoanApplicationSchema = {
       type: 'object',
       properties: {
         adminNotes: { type: 'string', maxLength: 1000 },
-        customInterestRateBps: { type: 'integer', minimum: 100, maximum: 5000 },
+        customInterestRateBps: { type: 'integer', minimum: 800, maximum: 2400 },
         customApprovedAmountCents: { type: 'integer', minimum: 10000 },
         customTenureMonths: { type: 'integer', minimum: 1, maximum: 60 },
       },

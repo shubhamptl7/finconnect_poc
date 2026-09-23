@@ -6,15 +6,14 @@ import { loanAutopayService } from '../services/loan/loanAutopayService.js';
 
 /**
  * DAILY AUTOPAY SCHEDULER
- * 
+ *
  * This module is intended to be called by a cron library (like node-cron)
  * once per day (e.g., at 01:00 AM server time).
  */
 export const dailyAutoPayScheduler = {
-  
   async runDailySweeps() {
     logger.info('[DailyAutoPayScheduler] Starting daily AutoPay sweeps...');
-    
+
     try {
       const today = new Date().toISOString().split('T')[0];
 
@@ -24,15 +23,15 @@ export const dailyAutoPayScheduler = {
           due_date: {
             [Op.lte]: today,
           },
-          status: 'PENDING'
+          status: 'PENDING',
         },
         include: [
           {
             model: db.Loan,
             as: 'loan',
             where: { status: 'ACTIVE' },
-          }
-        ]
+          },
+        ],
       });
 
       if (dueSchedules.length === 0) {
@@ -40,7 +39,9 @@ export const dailyAutoPayScheduler = {
         return { processed: 0, successful: 0, failed: 0 };
       }
 
-      logger.info(`[DailyAutoPayScheduler] Found ${dueSchedules.length} pending EMIs due. Checking for active AutoPay mandates.`);
+      logger.info(
+        `[DailyAutoPayScheduler] Found ${dueSchedules.length} pending EMIs due. Checking for active AutoPay mandates.`
+      );
 
       let successful = 0;
       let failed = 0;
@@ -52,8 +53,8 @@ export const dailyAutoPayScheduler = {
           const auth = await db.LoanAutopayAuthorization.findOne({
             where: {
               loan_id: schedule.loan_id,
-              status: 'ACTIVE'
-            }
+              status: 'ACTIVE',
+            },
           });
 
           if (!auth) {
@@ -65,23 +66,42 @@ export const dailyAutoPayScheduler = {
           const existingPendingPayment = await db.LoanPayment.findOne({
             where: {
               loan_id: schedule.loan_id,
-              status: 'PENDING'
-            }
+              status: 'PENDING',
+            },
           });
 
           if (existingPendingPayment) {
-            logger.info(`[DailyAutoPayScheduler] In-flight payment ${existingPendingPayment.id} already pending for loan ${schedule.loan_id}. Skipping sweep to prevent double-debit.`);
-            continue;
+            const ageHours =
+              (Date.now() - new Date(existingPendingPayment.created_at).getTime()) /
+              (1000 * 60 * 60);
+            if (ageHours < 48) {
+              logger.info(
+                `[DailyAutoPayScheduler] In-flight payment ${existingPendingPayment.id} already pending for loan ${schedule.loan_id} (${ageHours.toFixed(1)}h old). Skipping sweep.`
+              );
+              continue;
+            } else {
+              logger.warn(
+                `[DailyAutoPayScheduler] Payment ${existingPendingPayment.id} stuck PENDING for ${ageHours.toFixed(1)}h. Marking FAILED to unblock sweeps.`
+              );
+              existingPendingPayment.status = 'FAILED';
+              await existingPendingPayment.save();
+            }
           }
 
-          logger.info(`[DailyAutoPayScheduler] Executing Sweep for Loan ${schedule.loan_id}, Amount: ${schedule.scheduled_amount}`);
+          logger.info(
+            `[DailyAutoPayScheduler] Executing Sweep for Loan ${schedule.loan_id}, Amount: ${schedule.scheduled_amount}`
+          );
 
           // Idempotency key ensures we don't accidentally sweep twice if the cron job restarts on the same day
           const idempotencyKey = `cron_sweep_${schedule.id}_${today}`;
 
           // Execute the sweep
-          await loanAutopayService.executeAutopaySweep(auth, schedule.scheduled_amount, idempotencyKey);
-          
+          await loanAutopayService.executeAutopaySweep(
+            auth,
+            schedule.scheduled_amount,
+            idempotencyKey
+          );
+
           successful++;
         } catch (error) {
           logger.error(`[DailyAutoPayScheduler] Sweep failed for Loan ${schedule.loan_id}:`, error);
@@ -89,12 +109,13 @@ export const dailyAutoPayScheduler = {
         }
       }
 
-      logger.info(`[DailyAutoPayScheduler] Daily sweeps complete. Processed: ${successful}, Failed: ${failed}`);
+      logger.info(
+        `[DailyAutoPayScheduler] Daily sweeps complete. Processed: ${successful}, Failed: ${failed}`
+      );
       return { processed: successful + failed, successful, failed };
-
     } catch (error) {
       logger.error('[DailyAutoPayScheduler] FATAL ERROR running daily sweeps:', error);
       throw error;
     }
-  }
+  },
 };

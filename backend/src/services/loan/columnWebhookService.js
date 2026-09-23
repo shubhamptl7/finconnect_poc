@@ -4,6 +4,7 @@ import logger from '../../config/logger.js';
 import db from '../../models/index.js';
 
 // In-memory queue to prevent connection pool exhaustion during thundering herd webhook events
+const MAX_WEBHOOK_QUEUE_SIZE = 500;
 const webhookQueue = [];
 let isProcessingQueue = false;
 
@@ -33,7 +34,9 @@ const columnWebhookService = {
     const webhookSecret = process.env.COLUMN_WEBHOOK_SECRET;
 
     if (!webhookSecret) {
-      logger.warn('[ColumnWebhookService] COLUMN_WEBHOOK_SECRET not configured, skipping signature check in sandbox mode');
+      logger.warn(
+        '[ColumnWebhookService] COLUMN_WEBHOOK_SECRET not configured, skipping signature check in sandbox mode'
+      );
       return true;
     }
 
@@ -44,7 +47,9 @@ const columnWebhookService = {
 
     try {
       const hmac = crypto.createHmac('sha256', webhookSecret);
-      const computedSignature = hmac.update(typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody)).digest('hex');
+      const computedSignature = hmac
+        .update(typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody))
+        .digest('hex');
       const sigBuf = Buffer.from(signature);
       const compBuf = Buffer.from(computedSignature);
       if (sigBuf.length !== compBuf.length) {
@@ -64,6 +69,15 @@ const columnWebhookService = {
    * @returns {Promise<Object>} Queued acknowledgment
    */
   async processEvent(body) {
+    if (webhookQueue.length >= MAX_WEBHOOK_QUEUE_SIZE) {
+      logger.error(
+        `[ColumnWebhookService] Webhook queue capacity exceeded (${webhookQueue.length} items). Rejecting with 429.`
+      );
+      const err = new Error('Column webhook queue capacity exceeded');
+      err.statusCode = 429;
+      throw err;
+    }
+
     return new Promise((resolve, reject) => {
       webhookQueue.push(async () => {
         try {
@@ -102,7 +116,7 @@ const columnWebhookService = {
           received_at: new Date(),
         },
         transaction,
-        lock: transaction.LOCK.UPDATE
+        lock: transaction.LOCK.UPDATE,
       });
       await transaction.commit();
     } catch (dbErr) {
@@ -113,7 +127,9 @@ const columnWebhookService = {
     }
 
     if (webhookRecord && webhookRecord.processing_status === 'PROCESSED') {
-      logger.info(`[ColumnWebhookService] Event ${eventId} was already processed. Skipping duplicate.`);
+      logger.info(
+        `[ColumnWebhookService] Event ${eventId} was already processed. Skipping duplicate.`
+      );
       return { status: 'ALREADY_PROCESSED', eventId };
     }
 
@@ -128,14 +144,18 @@ const columnWebhookService = {
         const columnLoanId = eventData.loan_id || eventData.loanId;
         const bankAccountId = eventData.bank_account_id || eventData.bankAccountId;
 
-        logger.info(`[ColumnWebhookService] Settlement event for Column Loan ${columnLoanId} / BankAccount ${bankAccountId}`);
+        logger.info(
+          `[ColumnWebhookService] Settlement event for Column Loan ${columnLoanId} / BankAccount ${bankAccountId}`
+        );
 
         let loan = null;
         if (columnLoanId) {
           loan = await db.Loan.findOne({ where: { column_loan_id: columnLoanId } });
         }
         if (!loan && bankAccountId) {
-          loan = await db.Loan.findOne({ where: { column_funding_bank_account_id: bankAccountId } });
+          loan = await db.Loan.findOne({
+            where: { column_funding_bank_account_id: bankAccountId },
+          });
         }
         if (!loan && eventData.metadata?.loanId) {
           loan = await db.Loan.findByPk(eventData.metadata.loanId);
@@ -152,9 +172,10 @@ const columnWebhookService = {
             application.status = 'DISBURSED';
             await application.save();
           }
-
         } else {
-          logger.warn(`[ColumnWebhookService] No local Loan record matched Column event ${eventId}`);
+          logger.warn(
+            `[ColumnWebhookService] No local Loan record matched Column event ${eventId}`
+          );
         }
       } else if (eventType === 'transfer.failed' || eventType === 'disbursement.failed') {
         const columnLoanId = eventData.loan_id || eventData.loanId;
@@ -169,7 +190,15 @@ const columnWebhookService = {
 
           const application = await db.LoanApplication.findByPk(loan.application_id);
           if (application) {
-            application.status = 'DISBURSEMENT_FAILED';
+            application.status = 'CANCELLED';
+            const failureReason =
+              eventData.failure_reason ||
+              eventData.error ||
+              eventData.reason ||
+              'Transfer failed via Column webhook';
+            application.admin_notes = application.admin_notes
+              ? `${application.admin_notes}\n[Disbursement Failed]: ${failureReason}`
+              : `[Disbursement Failed]: ${failureReason}`;
             await application.save();
           }
         }

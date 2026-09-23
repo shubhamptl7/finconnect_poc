@@ -8,8 +8,8 @@ export const loanAutopayService = {
   /**
    * Generates a Plaid VRP Consent for the user to authorize via Plaid Link.
    *
-   * @param {string} userId 
-   * @param {string} loanId 
+   * @param {string} userId
+   * @param {string} loanId
    * @param {number} maxMonthlyAmountMinor - Max amount to authorize per month (e.g. 1.2x of EMI)
    * @returns {Promise<Object>} The consent_id for Plaid Link
    */
@@ -46,42 +46,66 @@ export const loanAutopayService = {
       throw new AppError('AutoPay is already active for this loan', 400);
     }
 
-    const recipientId = process.env.PLAID_UK_RECIPIENT_ID || 'recipient-id-sandbox-cdedd68a-5d49-4210-96a1-13413bdd08fa';
-    
+    const recipientId =
+      process.env.PLAID_UK_RECIPIENT_ID ||
+      'recipient-id-sandbox-cdedd68a-5d49-4210-96a1-13413bdd08fa';
+
     // Set consent to be valid until the maturity date of the loan + 30 days buffer
-    const validDatetimeTo = new Date(loan.maturity_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000));
+    const validDatetimeTo = new Date(
+      loan.maturity_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+    );
     validDatetimeTo.setDate(validDatetimeTo.getDate() + 30);
 
     const safeMonthlyLimit = Number(maxMonthlyAmountMinor) + 500; // Add £5.00 safety buffer for final EMI rounding (e.g. 21132 + 500 = 21632 pence)
 
-    const consentId = await plaidPaymentProvider.createVrpConsent({
-      monthlyAmountMinor: safeMonthlyLimit,
-      currency: 'GBP',
-      reference: `AutoPay${loan.id.substring(0, 8)}`,
-      recipientId,
-      validDatetimeTo,
-    });
+    let authorization = null;
 
-    await db.LoanAutopayAuthorization.create({
-      loan_id: loan.id,
-      user_id: userId,
-      plaid_authorization_id: consentId, // Storing VRP consent_id here
-      plaid_account_id: bankAccount.external_account_id || null,
-      amount: safeMonthlyLimit,
-      currency: 'GBP',
-      frequency: 'MONTHLY',
-      status: 'AUTHORIZATION_PENDING',
-    });
+    try {
+      const consentId = await plaidPaymentProvider.createVrpConsent({
+        monthlyAmountMinor: safeMonthlyLimit,
+        currency: 'GBP',
+        reference: `AutoPay${loan.id.substring(0, 8)}`,
+        recipientId,
+        validDatetimeTo,
+      });
 
-    // Use designated bank's institution to skip institution selection in Plaid Link
-    const institutionId = bankAccount.connection?.institution_id || null;
+      authorization = await db.LoanAutopayAuthorization.create({
+        loan_id: loan.id,
+        user_id: userId,
+        plaid_authorization_id: consentId, // Storing VRP consent_id here
+        plaid_account_id: bankAccount.external_account_id || null,
+        amount: safeMonthlyLimit,
+        currency: 'GBP',
+        frequency: 'MONTHLY',
+        status: 'AUTHORIZATION_PENDING',
+      });
 
-    const linkToken = await plaidBankProvider.createVrpConsentToken(userId, consentId, institutionId);
+      // Use designated bank's institution to skip institution selection in Plaid Link
+      const institutionId = bankAccount.connection?.institution_id || null;
 
-    return {
-      consent_id: consentId,
-      link_token: linkToken,
-    };
+      const linkToken = await plaidBankProvider.createVrpConsentToken(
+        userId,
+        consentId,
+        institutionId
+      );
+
+      return {
+        consent_id: consentId,
+        link_token: linkToken,
+      };
+    } catch (err) {
+      if (authorization) {
+        try {
+          await authorization.destroy();
+        } catch (cleanupErr) {
+          logger.warn(
+            `[LoanAutopayService] Cleanup error for authorization ${authorization.id}: ${cleanupErr.message}`
+          );
+        }
+      }
+      logger.error(`[LoanAutopayService] setupAutopayConsent failed: ${err.message}`);
+      throw err;
+    }
   },
 
   /**
@@ -95,13 +119,13 @@ export const loanAutopayService = {
    * @returns {Promise<Object>} { consent_id, link_token }
    */
   async setupOfferAutopayConsent(userId, applicationId, offerId = null) {
-    logger.info(`[LoanAutopayService] Setting up pre-acceptance VRP consent for user ${userId}, app ${applicationId}`);
+    logger.info(
+      `[LoanAutopayService] Setting up pre-acceptance VRP consent for user ${userId}, app ${applicationId}`
+    );
 
     const application = await db.LoanApplication.findOne({
       where: { id: applicationId, user_id: userId },
-      include: [
-        { model: db.LoanOffer, as: 'offer' },
-      ],
+      include: [{ model: db.LoanOffer, as: 'offer' }],
     });
 
     if (!application) {
@@ -109,7 +133,9 @@ export const loanAutopayService = {
     }
 
     const offer = offerId
-      ? await db.LoanOffer.findOne({ where: { id: offerId, application_id: applicationId, user_id: userId } })
+      ? await db.LoanOffer.findOne({
+          where: { id: offerId, application_id: applicationId, user_id: userId },
+        })
       : application.offer;
 
     if (!offer || (offer.status !== 'OFFERED' && offer.status !== 'PROCESSING')) {
@@ -129,11 +155,15 @@ export const loanAutopayService = {
       throw new AppError('The designated bank account for this loan is no longer active', 404);
     }
 
-    const recipientId = process.env.PLAID_UK_RECIPIENT_ID || 'recipient-id-sandbox-cdedd68a-5d49-4210-96a1-13413bdd08fa';
-    
-    // Set consent to be valid until the maturity date of the loan + 30 days buffer
+    const recipientId =
+      process.env.PLAID_UK_RECIPIENT_ID ||
+      'recipient-id-sandbox-cdedd68a-5d49-4210-96a1-13413bdd08fa';
+
+    // Set consent to be valid until the maturity date of the loan + 30 days buffer using calendar month arithmetic
     const tenureMonths = Number(offer.tenure_months || 12);
-    const validDatetimeTo = new Date(Date.now() + (tenureMonths * 30 + 60) * 24 * 60 * 60 * 1000);
+    const validDatetimeTo = new Date();
+    validDatetimeTo.setMonth(validDatetimeTo.getMonth() + tenureMonths);
+    validDatetimeTo.setDate(validDatetimeTo.getDate() + 30);
 
     const safeMonthlyLimit = Number(offer.estimated_emi || 0) + 500; // Add £5.00 safety buffer for rounding
 
@@ -148,7 +178,11 @@ export const loanAutopayService = {
     // Use designated bank's institution to skip institution selection in Plaid Link
     const institutionId = bankAccount.connection?.institution_id || null;
 
-    const linkToken = await plaidBankProvider.createVrpConsentToken(userId, consentId, institutionId);
+    const linkToken = await plaidBankProvider.createVrpConsentToken(
+      userId,
+      consentId,
+      institutionId
+    );
 
     return {
       consent_id: consentId,
@@ -159,14 +193,18 @@ export const loanAutopayService = {
   /**
    * Activates the AutoPay authorization after the user successfully completes Plaid Link.
    *
-   * @param {string} userId 
-   * @param {string} consentId 
+   * @param {string} userId
+   * @param {string} consentId
    */
   async activateAutopayConsent(userId, consentId) {
     logger.info(`[LoanAutopayService] Activating consent ${consentId} for user ${userId}`);
 
     const auth = await db.LoanAutopayAuthorization.findOne({
-      where: { user_id: userId, plaid_authorization_id: consentId, status: 'AUTHORIZATION_PENDING' },
+      where: {
+        user_id: userId,
+        plaid_authorization_id: consentId,
+        status: 'AUTHORIZATION_PENDING',
+      },
     });
 
     if (!auth) {
@@ -185,7 +223,8 @@ export const loanAutopayService = {
       await notificationService.createNotification({
         user_id: userId,
         title: 'AutoPay Mandate Activated',
-        message: 'Variable Recurring Payment (VRP) consent is active. Monthly loan EMIs will be debited automatically from your designated account.',
+        message:
+          'Variable Recurring Payment (VRP) consent is active. Monthly loan EMIs will be debited automatically from your designated account.',
         type: 'loan',
         action_url: `/app/emi/${appTargetId}`,
         metadata: {
@@ -204,8 +243,8 @@ export const loanAutopayService = {
   /**
    * Cancels the active AutoPay authorization.
    *
-   * @param {string} userId 
-   * @param {string} loanId 
+   * @param {string} userId
+   * @param {string} loanId
    */
   async revokeAutopay(userId, loanId) {
     logger.info(`[LoanAutopayService] Revoking AutoPay for user ${userId}, loan ${loanId}`);
@@ -223,7 +262,9 @@ export const loanAutopayService = {
       try {
         await plaidPaymentProvider.revokeVrpConsent(auth.plaid_authorization_id);
       } catch (err) {
-        logger.warn(`Failed to revoke consent in Plaid: ${err.message}. Proceeding to cancel locally.`);
+        logger.warn(
+          `Failed to revoke consent in Plaid: ${err.message}. Proceeding to cancel locally.`
+        );
       }
     }
 
@@ -242,7 +283,9 @@ export const loanAutopayService = {
    * @param {string} idempotencyKey - UUID for safety
    */
   async executeAutopaySweep(auth, amountMinor, idempotencyKey) {
-    logger.info(`[LoanAutopayService] Executing VRP Sweep for Auth ${auth.id}, Amount: ${amountMinor}`);
+    logger.info(
+      `[LoanAutopayService] Executing VRP Sweep for Auth ${auth.id}, Amount: ${amountMinor}`
+    );
 
     // If amount is greater than the max consented amount, fail safely
     if (amountMinor > auth.amount) {
@@ -271,5 +314,5 @@ export const loanAutopayService = {
     });
 
     return loanPayment;
-  }
+  },
 };

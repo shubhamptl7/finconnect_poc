@@ -95,6 +95,11 @@ const bankService = {
       const accounts = await bankProvider.getAccountsAndBalances(accessToken);
       const authMap = await bankProvider.getAccountAuth(accessToken); // Non-fatal if fails
 
+      // Acquire PostgreSQL advisory transaction lock to serialize BACS counter allocation across concurrent transactions
+      await db.sequelize.query("SELECT pg_advisory_xact_lock(hashtext('bacs_counter_lock'))", {
+        transaction: t,
+      });
+
       // Find the highest mock BACS counter to assign unique ones for Sandbox
       const allAccounts = await db.BankAccount.findAll({
         transaction: t,
@@ -165,15 +170,17 @@ const bankService = {
       );
 
       // 6. Notify the user
-      await notificationService.createNotification(
-        {
-          user_id: userId,
-          title: 'Bank Connected',
-          message: `Successfully linked ${bankName || 'your bank'} (${accounts.length} account${accounts.length === 1 ? '' : 's'}).`,
-          type: 'kyc',
-        },
-        { transaction: t }
-      ).catch(() => {});
+      await notificationService
+        .createNotification(
+          {
+            user_id: userId,
+            title: 'Bank Connected',
+            message: `Successfully linked ${bankName || 'your bank'} (${accounts.length} account${accounts.length === 1 ? '' : 's'}).`,
+            type: 'kyc',
+          },
+          { transaction: t }
+        )
+        .catch(() => {});
 
       await t.commit();
       return { success: true, accountsConnected: accounts.length };
@@ -261,8 +268,20 @@ const bankService = {
                   currency: txn.iso_currency_code || 'USD',
                   status: txn.pending ? 'pending' : 'settled',
                   category: txn.category ? txn.category[0] : 'Uncategorized',
-                  description_encrypted: publicKey ? eciesEncrypt(publicKey, String(txn.name || 'Unknown'), 'finconnect-txn-desc-v1') : null,
-                  amount_encrypted: publicKey ? eciesEncrypt(publicKey, String(Math.abs(txn.amount || 0)), 'finconnect-txn-amt-v1') : null,
+                  description_encrypted: publicKey
+                    ? eciesEncrypt(
+                        publicKey,
+                        String(txn.name || 'Unknown'),
+                        'finconnect-txn-desc-v1'
+                      )
+                    : null,
+                  amount_encrypted: publicKey
+                    ? eciesEncrypt(
+                        publicKey,
+                        String(Math.abs(txn.amount || 0)),
+                        'finconnect-txn-amt-v1'
+                      )
+                    : null,
                   transaction_date: txn.date || txn.authorized_date || new Date(),
                 },
                 { transaction: t, conflictFields: ['external_transaction_id_hash'] }
@@ -316,7 +335,7 @@ const bankService = {
   /**
    * Full re-sync: wipes all existing transactions for the user, resets all Plaid sync
    * cursors to null, then performs a fresh full sync from the beginning of history.
-   * 
+   *
    * Called after a key rotation (resetE2eeKeypair) to re-encrypt all transactions
    * under the user's new public key.
    */
@@ -343,8 +362,13 @@ const bankService = {
         const firstPage = await bankProvider.syncTransactions(conn.access_token, null);
         prefetchedPages.push({ conn, firstPage });
       } catch (err) {
-        logger.error(`[fullSync] Plaid pre-flight check failed for connection ${conn.id}: ${err.message}`);
-        throw new Error(`Cannot perform full re-sync: Plaid is unavailable for connection ${conn.id}. Transaction history preserved.`, { cause: err });
+        logger.error(
+          `[fullSync] Plaid pre-flight check failed for connection ${conn.id}: ${err.message}`
+        );
+        throw new Error(
+          `Cannot perform full re-sync: Plaid is unavailable for connection ${conn.id}. Transaction history preserved.`,
+          { cause: err }
+        );
       }
     }
 
@@ -413,10 +437,18 @@ const bankService = {
                   status: txn.pending ? 'pending' : 'settled',
                   category: txn.category ? txn.category[0] : 'Uncategorized',
                   description_encrypted: publicKey
-                    ? eciesEncrypt(publicKey, String(txn.name || 'Unknown'), 'finconnect-txn-desc-v1')
+                    ? eciesEncrypt(
+                        publicKey,
+                        String(txn.name || 'Unknown'),
+                        'finconnect-txn-desc-v1'
+                      )
                     : null,
                   amount_encrypted: publicKey
-                    ? eciesEncrypt(publicKey, String(Math.abs(txn.amount || 0)), 'finconnect-txn-amt-v1')
+                    ? eciesEncrypt(
+                        publicKey,
+                        String(Math.abs(txn.amount || 0)),
+                        'finconnect-txn-amt-v1'
+                      )
                     : null,
                   transaction_date: txn.date || txn.authorized_date || new Date(),
                 },

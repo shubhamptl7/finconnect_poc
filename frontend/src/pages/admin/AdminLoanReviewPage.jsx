@@ -1,21 +1,38 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import {
   ShieldCheck, CheckCircle2, AlertCircle, Activity,
   Search, Lock, Landmark, ChevronRight, Sparkles,
-  ArrowLeft, FileCheck, Ban
+  ArrowLeft, FileCheck, Ban, X, Filter, ChevronDown, RefreshCw
 } from 'lucide-react'
 import { AppLayout } from '@/components/layout/AppLayout'
-import { Badge, Button, Card } from '@/components/ui'
+import { Badge, Button, Card, TablePagination } from '@/components/ui'
 import { adminApi } from '@/services/adminApi'
 import { formatDate, cn, sanitizeLoanApp, formatCurrency } from '@/lib/utils'
 import { formatPence } from '@/lib/currencyFormatters'
+
+function useDebounce(value, delay = 350) {
+  const [debouncedValue, setDebouncedValue] = useState(value)
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay)
+    return () => clearTimeout(handler)
+  }, [value, delay])
+  return debouncedValue
+}
 
 export function AdminLoanReviewPage() {
   const [reviews, setReviews] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebounce(search, 350)
   const [statusFilter, setStatusFilter] = useState('all')
+  const [recommendationFilter, setRecommendationFilter] = useState('all')
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(20)
+  const [totalCount, setTotalCount] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
+  const [apiStats, setApiStats] = useState(null)
+
   const [selectedApp, setSelectedApp] = useState(null)
   const [activeDossierTab, setActiveDossierTab] = useState('evidence') // 'evidence' | 'rules' | 'decision'
 
@@ -27,21 +44,38 @@ export function AdminLoanReviewPage() {
   const [customTenureMonths, setCustomTenureMonths] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  const fetchReviews = async () => {
+  const fetchReviews = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await adminApi.getPendingLoanReviews()
-      setReviews((data || []).map(sanitizeLoanApp))
+      const res = await adminApi.getPendingLoanReviews({
+        page,
+        limit,
+        search: debouncedSearch,
+        status: statusFilter,
+        systemRecommendation: recommendationFilter,
+      })
+      const items = res.data || (Array.isArray(res) ? res : [])
+      const meta = res.meta || {}
+      setReviews(items.map(sanitizeLoanApp))
+      setTotalCount(meta.totalCount ?? items.length)
+      setTotalPages(meta.totalPages ?? (Math.ceil((meta.totalCount || items.length) / limit) || 1))
+      if (meta.stats) {
+        setApiStats(meta.stats)
+      }
     } catch (err) {
       console.error('Failed to fetch pending loan reviews:', err)
     } finally {
       setLoading(false)
     }
-  }
+  }, [page, limit, debouncedSearch, statusFilter, recommendationFilter])
 
   useEffect(() => {
     fetchReviews()
-  }, [])
+  }, [fetchReviews])
+
+  useEffect(() => {
+    setPage(1)
+  }, [debouncedSearch, statusFilter, recommendationFilter])
 
   useEffect(() => {
     if (selectedApp) {
@@ -54,26 +88,16 @@ export function AdminLoanReviewPage() {
     }
   }, [selectedApp])
 
-  const filtered = useMemo(() => {
-    return reviews.filter(app => {
-      const name = app.user?.name || ''
-      const email = app.user?.email || ''
-      const appNum = app.application_number || ''
-      const matchesSearch = name.toLowerCase().includes(search.toLowerCase()) ||
-        email.toLowerCase().includes(search.toLowerCase()) ||
-        appNum.toLowerCase().includes(search.toLowerCase())
-      const matchesStatus = statusFilter === 'all' || app.status === statusFilter
-      return matchesSearch && matchesStatus
-    })
-  }, [reviews, search, statusFilter])
-
-  const stats = useMemo(() => ({
-    total: reviews.length,
-    pending: reviews.filter(r => r.status === 'ADMIN_REVIEW_PENDING' || r.status === 'UNDERWRITING').length,
-    recommendedApprove: reviews.filter(r => r.system_recommendation === 'RECOMMENDED_APPROVE').length,
-    recommendedReject: reviews.filter(r => r.system_recommendation === 'RECOMMENDED_REJECT').length,
-    approved: reviews.filter(r => ['APPROVED', 'OFFER_GENERATED', 'ACCEPTED', 'LOAN_CREATED', 'DISBURSED', 'CLOSED', 'COMPLETED'].includes(r.status)).length,
-  }), [reviews])
+  const stats = useMemo(() => {
+    if (apiStats) return apiStats
+    return {
+      total: totalCount || reviews.length,
+      pending: reviews.filter(r => r.status === 'ADMIN_REVIEW_PENDING' || r.status === 'UNDERWRITING').length,
+      recommendedApprove: reviews.filter(r => r.system_recommendation === 'RECOMMENDED_APPROVE').length,
+      recommendedReject: reviews.filter(r => r.system_recommendation === 'RECOMMENDED_REJECT').length,
+      approved: reviews.filter(r => ['APPROVED', 'OFFER_GENERATED', 'ACCEPTED', 'LOAN_CREATED', 'DISBURSED', 'CLOSED', 'COMPLETED'].includes(r.status)).length,
+    }
+  }, [apiStats, totalCount, reviews])
 
   const handleApprove = async (appId) => {
     setSubmitting(true)
@@ -1044,31 +1068,95 @@ export function AdminLoanReviewPage() {
 
         {/* Clean Application Directory Table */}
         <Card className="p-6 bg-white border border-slate-200/80 shadow-sm rounded-2xl space-y-5">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
             <div className="relative flex-1 max-w-md w-full">
               <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 placeholder="Search applicant name, email, or APP-2026-ID…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:border-teal-500 focus:bg-white transition-all"
+                className="w-full pl-10 pr-9 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:border-teal-500 focus:bg-white transition-all"
               />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+                >
+                  <X size={14} />
+                </button>
+              )}
             </div>
 
-            {/* Filter Tabs */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-              {['all', 'ADMIN_REVIEW_PENDING', 'APPROVED', 'ACCEPTED', 'REJECTED'].map(status => (
-                <button
-                  key={status}
-                  onClick={() => setStatusFilter(status)}
+            {/* Filter Dropdowns */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Status Dropdown */}
+              <div className="relative inline-flex items-center">
+                <Filter
+                  size={13}
                   className={cn(
-                    'px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap',
-                    statusFilter === status ? 'bg-teal-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    'absolute left-3 pointer-events-none transition-colors',
+                    statusFilter !== 'all' ? 'text-teal-600' : 'text-slate-400'
+                  )}
+                />
+                <select
+                  value={statusFilter}
+                  onChange={e => setStatusFilter(e.target.value)}
+                  className={cn(
+                    'pl-8 pr-8 py-2 bg-slate-50 hover:bg-slate-100 border rounded-xl text-xs font-semibold cursor-pointer transition-all appearance-none outline-none focus:ring-2',
+                    statusFilter !== 'all'
+                      ? 'border-teal-300 text-teal-900 bg-teal-50/50 focus:ring-teal-500/20'
+                      : 'border-slate-200 text-slate-700 focus:ring-slate-200'
                   )}
                 >
-                  {status === 'all' ? 'All Applications' : status === 'ADMIN_REVIEW_PENDING' ? 'Pending Review' : status}
+                  <option value="all">All Application Statuses</option>
+                  <option value="ADMIN_REVIEW_PENDING">Pending Review</option>
+                  <option value="APPROVED">Approved</option>
+                  <option value="ACCEPTED">Accepted</option>
+                  <option value="REJECTED">Rejected</option>
+                </select>
+                <div className="absolute right-2.5 pointer-events-none text-slate-400">
+                  <ChevronDown size={14} />
+                </div>
+              </div>
+
+              {/* Recommendation Dropdown */}
+              <div className="relative inline-flex items-center">
+                <CheckCircle2
+                  size={13}
+                  className={cn(
+                    'absolute left-3 pointer-events-none transition-colors',
+                    recommendationFilter !== 'all' ? 'text-teal-600' : 'text-slate-400'
+                  )}
+                />
+                <select
+                  value={recommendationFilter}
+                  onChange={e => setRecommendationFilter(e.target.value)}
+                  className={cn(
+                    'pl-8 pr-8 py-2 bg-slate-50 hover:bg-slate-100 border rounded-xl text-xs font-semibold cursor-pointer transition-all appearance-none outline-none focus:ring-2',
+                    recommendationFilter !== 'all'
+                      ? 'border-teal-300 text-teal-900 bg-teal-50/50 focus:ring-teal-500/20'
+                      : 'border-slate-200 text-slate-700 focus:ring-slate-200'
+                  )}
+                >
+                  <option value="all">All System Recommendations</option>
+                  <option value="RECOMMENDED_APPROVE">Recommend Approve</option>
+                  <option value="RECOMMENDED_REJECT">Recommend Reject</option>
+                </select>
+                <div className="absolute right-2.5 pointer-events-none text-slate-400">
+                  <ChevronDown size={14} />
+                </div>
+              </div>
+
+              {(statusFilter !== 'all' || recommendationFilter !== 'all' || search) && (
+                <button
+                  type="button"
+                  onClick={() => { setStatusFilter('all'); setRecommendationFilter('all'); setSearch(''); }}
+                  className="px-2.5 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer flex items-center gap-1"
+                >
+                  <RefreshCw size={12} /> Reset
                 </button>
-              ))}
+              )}
             </div>
           </div>
 
@@ -1087,14 +1175,27 @@ export function AdminLoanReviewPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filtered.length === 0 ? (
+                {loading ? (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-slate-400 font-medium">
-                      No loan applications match your search query.
+                    <td colSpan={7} className="py-12 text-center text-slate-400">
+                      <div className="flex items-center justify-center gap-2 font-medium">
+                        <Activity size={18} className="animate-spin text-teal-600" />
+                        Loading underwriting loan applications…
+                      </div>
+                    </td>
+                  </tr>
+                ) : reviews.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-slate-400">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <FileCheck size={32} className="text-slate-300 stroke-[1.5]" />
+                        <p className="font-bold text-slate-700 text-sm">No applications found</p>
+                        <p className="text-xs text-slate-400">No loan records match your search or active filters.</p>
+                      </div>
                     </td>
                   </tr>
                 ) : (
-                  filtered.map(app => {
+                  reviews.map(app => {
                     const isApproved = ['APPROVED', 'OFFER_GENERATED', 'ACCEPTED', 'LOAN_CREATED', 'DISBURSED', 'CLOSED', 'COMPLETED'].includes(app.status)
                     const isRejected = ['REJECTED', 'CANCELLED', 'FAILED'].includes(app.status)
                     const isRecApprove = app.system_recommendation === 'RECOMMENDED_APPROVE'
@@ -1176,6 +1277,17 @@ export function AdminLoanReviewPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Standard Pagination Bar */}
+          <TablePagination
+            currentPage={page}
+            totalPages={totalPages}
+            totalCount={totalCount}
+            limit={limit}
+            onPageChange={setPage}
+            onLimitChange={(newL) => { setLimit(newL); setPage(1); }}
+            loading={loading}
+          />
         </Card>
       </div>
     </AppLayout>

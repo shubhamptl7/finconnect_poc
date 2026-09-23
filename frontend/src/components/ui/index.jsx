@@ -769,3 +769,5 @@ export function ConnectedBankCard({ bank, onDisconnect, onReconnect }) {
     </Card>
   )
 }
+
+export { TablePagination } from './TablePagination';

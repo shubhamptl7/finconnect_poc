@@ -22,11 +22,17 @@ const loanOriginationService = {
    * @returns {Promise<Object>} { application, offer, loan, wireTransfer }
    */
   async acceptOfferAndOriginate(userId, applicationId, offerId, options = {}) {
-    logger.info(`[loanOriginationService] User ${userId} accepting offer ${offerId} for app ${applicationId}`);
+    logger.info(
+      `[loanOriginationService] User ${userId} accepting offer ${offerId} for app ${applicationId}`
+    );
 
-    const consentId = typeof options === 'string' ? options : (options?.consentId || options?.consent_id || null);
+    const consentId =
+      typeof options === 'string' ? options : options?.consentId || options?.consent_id || null;
     if (!consentId && process.env.ENFORCE_AUTOPAY_AT_ACCEPTANCE !== 'false') {
-      throw new AppError('Repayment mandate (AutoPay) must be authorized with your bank before loan funds can be disbursed.', STATUS_CODES.BAD_REQUEST);
+      throw new AppError(
+        'Repayment mandate (AutoPay) must be authorized with your bank before loan funds can be disbursed.',
+        STATUS_CODES.BAD_REQUEST
+      );
     }
 
     const application = await db.LoanApplication.findOne({
@@ -63,7 +69,10 @@ const loanOriginationService = {
 
     if (updatedRows === 0 && offer.status !== 'ACCEPTED') {
       if (offer.status === 'PROCESSING') {
-        throw new AppError('Loan offer is currently being processed by another request', STATUS_CODES.CONFLICT);
+        throw new AppError(
+          'Loan offer is currently being processed by another request',
+          STATUS_CODES.CONFLICT
+        );
       }
       if (new Date() > new Date(offer.expires_at)) {
         offer.status = 'EXPIRED';
@@ -86,28 +95,57 @@ const loanOriginationService = {
 
     // Fetch user-designated linked BankAccount for external counterparty disbursement
     if (!application.bank_account_id) {
-      throw new AppError('No bank account designated for this loan application', STATUS_CODES.BAD_REQUEST);
+      throw new AppError(
+        'No bank account designated for this loan application',
+        STATUS_CODES.BAD_REQUEST
+      );
     }
     const bankAccount = await db.BankAccount.findOne({
       where: { id: application.bank_account_id, user_id: userId },
     });
 
     if (!bankAccount) {
-      throw new AppError('The designated bank account for this loan is no longer active or linked', STATUS_CODES.BAD_REQUEST);
+      throw new AppError(
+        'The designated bank account for this loan is no longer active or linked',
+        STATUS_CODES.BAD_REQUEST
+      );
     }
 
     const idempotencyPrefix = `app_${applicationId.slice(0, 8)}`;
 
+    const isProduction = process.env.NODE_ENV === 'production';
+    const borrowerDob = user.date_of_birth || (isProduction ? null : '1990-01-01');
+    if (isProduction && !borrowerDob) {
+      throw new AppError(
+        'Date of birth is required for loan origination verification',
+        STATUS_CODES.BAD_REQUEST
+      );
+    }
+
+    const ssnOrTin = isProduction ? user.preferences?.ssn_or_tin || null : '999001234';
+
+    if (isProduction && !ssnOrTin) {
+      throw new AppError(
+        'Tax identification / SSN is required for loan origination compliance',
+        STATUS_CODES.BAD_REQUEST
+      );
+    }
+
     // ─── STAGE 1: Column Person Entity Creation / Mapping ──────────────
-    logger.info(`[LOAN_ORIGINATION_STAGE_1] Resolving Column Person Entity for borrower email=${user.email}`);
+    logger.info(
+      `[LOAN_ORIGINATION_STAGE_1] Resolving Column Person Entity for borrower email=${user.email}`
+    );
     const columnEntity = await columnBankProvider.createEntity(
       {
         email: user.email,
         first_name: user.name ? user.name.split(' ')[0] : 'Borrower',
-        last_name: user.name && user.name.split(' ').length > 1 ? user.name.split(' ').slice(1).join(' ') : 'Applicant',
+        last_name:
+          user.name && user.name.split(' ').length > 1
+            ? user.name.split(' ').slice(1).join(' ')
+            : 'Applicant',
         phone: user.phone_number || '+447911123456',
-        ssn_or_tin: user.ssn_last_four ? `00000${user.ssn_last_four}` : '999001234',
-        date_of_birth: '1990-01-01',
+        ssn_or_tin: ssnOrTin,
+        date_of_birth: borrowerDob,
       },
       `ent-create:${idempotencyPrefix}`
     );
@@ -121,29 +159,41 @@ const loanOriginationService = {
 
     if (targetCurrency !== 'USD') {
       try {
-        fxQuote = await columnClient.post('/fx/quotes', {
-          source_currency: 'USD',
-          destination_currency: targetCurrency,
-          destination_amount: wireAmountCents,
-        }, `fx-quote:${idempotencyPrefix}`);
+        fxQuote = await columnClient.post(
+          '/fx/quotes',
+          {
+            source_currency: 'USD',
+            destination_currency: targetCurrency,
+            destination_amount: wireAmountCents,
+          },
+          `fx-quote:${idempotencyPrefix}`
+        );
         usdPrincipalCents = Number(fxQuote.source_amount);
       } catch (fxErr) {
-        logger.warn(`Column FX quote API failed: ${fxErr.message}. Fetching real-time live FX rate via liveFxService.`);
+        logger.warn(
+          `Column FX quote API failed: ${fxErr.message}. Fetching real-time live FX rate via liveFxService.`
+        );
         const liveRate = await liveFxService.getExchangeRate(targetCurrency, 'USD');
         usdPrincipalCents = Math.round(wireAmountCents * liveRate);
-        logger.info(`[LOAN_ORIGINATION_STAGE_2] Converted ${wireAmountCents} ${targetCurrency} cents -> ${usdPrincipalCents} USD cents at live rate ${liveRate}`);
+        logger.info(
+          `[LOAN_ORIGINATION_STAGE_2] Converted ${wireAmountCents} ${targetCurrency} cents -> ${usdPrincipalCents} USD cents at live rate ${liveRate}`
+        );
       }
     }
 
     // ─── STAGE 3: Column Loan Creation ─────────────────────────────────
-    logger.info(`[LOAN_ORIGINATION_STAGE_3] Originating Column Loan Asset of ${usdPrincipalCents} USD cents for Entity ${columnEntity.id}`);
+    logger.info(
+      `[LOAN_ORIGINATION_STAGE_3] Originating Column Loan Asset of ${usdPrincipalCents} USD cents for Entity ${columnEntity.id}`
+    );
     const columnLoan = await columnLoanProvider.createLoan(
       {
         borrower_entity_id: columnEntity.id,
         principal_amount: usdPrincipalCents,
         interest_rate_bps: Number(offer.interest_rate_bps),
         term_months: Number(offer.tenure_months),
-        ...(process.env.COLUMN_LOAN_PROGRAM_ID ? { loan_program_id: process.env.COLUMN_LOAN_PROGRAM_ID } : {}),
+        ...(process.env.COLUMN_LOAN_PROGRAM_ID
+          ? { loan_program_id: process.env.COLUMN_LOAN_PROGRAM_ID }
+          : {}),
       },
       `loan-create:${idempotencyPrefix}`
     );
@@ -154,9 +204,11 @@ const loanOriginationService = {
     const maturityDate = new Date();
     maturityDate.setMonth(maturityDate.getMonth() + Number(offer.tenure_months));
 
-    let loanRecord = existingLoan || await db.Loan.findOne({
-      where: { application_id: applicationId },
-    });
+    let loanRecord =
+      existingLoan ||
+      (await db.Loan.findOne({
+        where: { application_id: applicationId },
+      }));
 
     if (loanRecord) {
       loanRecord.column_loan_id = columnLoan.id;
@@ -191,7 +243,9 @@ const loanOriginationService = {
     }
 
     // ─── STAGE 4: Column Deposit Bank Accounts (Funding & Collection) ──
-    logger.info(`[LOAN_ORIGINATION_STAGE_4] Creating Column Deposit Accounts under Entity ${columnEntity.id}`);
+    logger.info(
+      `[LOAN_ORIGINATION_STAGE_4] Creating Column Deposit Accounts under Entity ${columnEntity.id}`
+    );
     const fundingAccount = await columnBankProvider.createBankAccount(
       columnEntity.id,
       { name: `${user.name || 'Borrower'} - Loan Funding Account`, type: 'CHECKING' },
@@ -203,10 +257,14 @@ const loanOriginationService = {
       { name: `${user.name || 'Borrower'} - Loan Collection Account`, type: 'CHECKING' },
       `acct-collection:${idempotencyPrefix}`
     );
-    logger.info(`[LOAN_ORIGINATION_STAGE_4] Accounts Created -> Funding: ${fundingAccount.id}, Collection: ${collectionAccount.id}`);
+    logger.info(
+      `[LOAN_ORIGINATION_STAGE_4] Accounts Created -> Funding: ${fundingAccount.id}, Collection: ${collectionAccount.id}`
+    );
 
     // ─── STAGE 5: Internal Loan Disbursement (Loan Asset -> Deposit Account) ──
-    logger.info(`[LOAN_ORIGINATION_STAGE_5] Disbursing ${usdPrincipalCents} cents from Loan ${columnLoan.id} to Deposit Account ${fundingAccount.id}`);
+    logger.info(
+      `[LOAN_ORIGINATION_STAGE_5] Disbursing ${usdPrincipalCents} cents from Loan ${columnLoan.id} to Deposit Account ${fundingAccount.id}`
+    );
     const columnDisbursement = await columnLoanProvider.createDisbursement(
       {
         loan_id: columnLoan.id,
@@ -215,18 +273,22 @@ const loanOriginationService = {
       },
       `disb-create:${idempotencyPrefix}`
     );
-    logger.info(`[LOAN_ORIGINATION_STAGE_5] Disbursement Created -> ID: ${columnDisbursement.id}, Status: ${columnDisbursement.status || 'COMPLETED'}`);
+    logger.info(
+      `[LOAN_ORIGINATION_STAGE_5] Disbursement Created -> ID: ${columnDisbursement.id}, Status: ${columnDisbursement.status || 'COMPLETED'}`
+    );
 
     // ─── STAGE 6: Counterparty Registration & Outbound Wire Dispatch ───
-    logger.info(`[LOAN_ORIGINATION_STAGE_6] Registering Column Counterparty for linked IBAN ${bankAccount.iban} / BIC ${bankAccount.bic || 'NWBKGB2L'}`);
+    logger.info(
+      `[LOAN_ORIGINATION_STAGE_6] Registering Column Counterparty for linked IBAN ${bankAccount.iban} / BIC ${bankAccount.bic || 'NWBKGB2L'}`
+    );
     const columnCounterparty = await columnBankProvider.createCounterparty(
       bankAccount,
       `cp-create:${bankAccount.id}`
     );
 
-
-
-    logger.info(`[LOAN_ORIGINATION_STAGE_6] Executing International SWIFT Wire to Counterparty ${columnCounterparty.id}`);
+    logger.info(
+      `[LOAN_ORIGINATION_STAGE_6] Executing International SWIFT Wire to Counterparty ${columnCounterparty.id}`
+    );
     const wireTransfer = await columnWireProvider.createInternationalWire(
       {
         bankAccountId: fundingAccount.id,
@@ -239,15 +301,22 @@ const loanOriginationService = {
       },
       `wire-disb:${idempotencyPrefix}`
     );
-    logger.info(`[LOAN_ORIGINATION_STAGE_6] Wire Dispatched -> Wire ID: ${wireTransfer.id}, Status: ${wireTransfer.status}`);
+    logger.info(
+      `[LOAN_ORIGINATION_STAGE_6] Wire Dispatched -> Wire ID: ${wireTransfer.id}, Status: ${wireTransfer.status}`
+    );
 
     // ─── STAGE 7: Local Postgres State Machine & Read-Model ────────────
-    logger.info(`[LOAN_ORIGINATION_STAGE_7] Finalizing local PostgreSQL Loan read-model for Application ${applicationId}`);
+    logger.info(
+      `[LOAN_ORIGINATION_STAGE_7] Finalizing local PostgreSQL Loan read-model for Application ${applicationId}`
+    );
 
     loanRecord.column_funding_bank_account_id = fundingAccount.id;
     loanRecord.column_collection_bank_account_id = collectionAccount.id;
     loanRecord.status = 'ACTIVE';
-    loanRecord.disbursement_status = wireTransfer.status === 'SETTLED' || wireTransfer.status === 'COMPLETED' ? 'COMPLETED' : 'PROCESSING';
+    loanRecord.disbursement_status =
+      wireTransfer.status === 'SETTLED' || wireTransfer.status === 'COMPLETED'
+        ? 'COMPLETED'
+        : 'PROCESSING';
     loanRecord.last_synced_at = new Date();
     await loanRecord.save();
 
@@ -260,7 +329,9 @@ const loanOriginationService = {
         loanRecord.interest_rate_bps,
         loanRecord.start_date
       );
-      logger.info(`[LOAN_ORIGINATION_STAGE_7] Amortization schedule generated for Loan ${loanRecord.id}`);
+      logger.info(
+        `[LOAN_ORIGINATION_STAGE_7] Amortization schedule generated for Loan ${loanRecord.id}`
+      );
     } catch (schedErr) {
       logger.error(`[LOAN_ORIGINATION_STAGE_7] Failed to generate schedule: ${schedErr.message}`);
       // Do not throw here, as the loan is already originated with the external BaaS
@@ -299,9 +370,13 @@ const loanOriginationService = {
             authorized_at: new Date(),
           });
         }
-        logger.info(`[loanOriginationService] AutoPay Mandate activated for Loan ${loanRecord.id} with VRP consent ${consentId}`);
+        logger.info(
+          `[loanOriginationService] AutoPay Mandate activated for Loan ${loanRecord.id} with VRP consent ${consentId}`
+        );
       } catch (authErr) {
-        logger.error(`[loanOriginationService] Failed to record AutoPay authorization: ${authErr.message}`);
+        logger.error(
+          `[loanOriginationService] Failed to record AutoPay authorization: ${authErr.message}`
+        );
       }
     }
 
@@ -316,7 +391,9 @@ const loanOriginationService = {
         available_balance: approvedPence,
       });
       await bankAccount.reload();
-      logger.info(`[loanOriginationService] Atomically credited ${approvedPence} pence to BankAccount ${bankAccount.id}. New Balance: ${bankAccount.current_balance}`);
+      logger.info(
+        `[loanOriginationService] Atomically credited ${approvedPence} pence to BankAccount ${bankAccount.id}. New Balance: ${bankAccount.current_balance}`
+      );
 
       // Broadcast real-time balance update to borrower
       try {
@@ -350,22 +427,36 @@ const loanOriginationService = {
               currency: targetCurrency,
               status: 'settled',
               category: 'Loan Disbursement',
-              description_encrypted: eciesEncrypt(user.e2ee_public_key, 'Loan Disbursement Credit', 'finconnect-txn-desc-v1'),
-              amount_encrypted: eciesEncrypt(user.e2ee_public_key, creditPounds, 'finconnect-txn-amt-v1'),
+              description_encrypted: eciesEncrypt(
+                user.e2ee_public_key,
+                'Loan Disbursement Credit',
+                'finconnect-txn-desc-v1'
+              ),
+              amount_encrypted: eciesEncrypt(
+                user.e2ee_public_key,
+                creditPounds,
+                'finconnect-txn-amt-v1'
+              ),
               transaction_date: new Date(),
             },
           });
-          logger.info(`[loanOriginationService] Injected mock disbursement transaction for Loan ${loanRecord.id}`);
+          logger.info(
+            `[loanOriginationService] Injected mock disbursement transaction for Loan ${loanRecord.id}`
+          );
         }
       } catch (txErr) {
-        logger.error(`[loanOriginationService] Failed to record disbursement transaction: ${txErr.message}`);
+        logger.error(
+          `[loanOriginationService] Failed to record disbursement transaction: ${txErr.message}`
+        );
       }
     }
 
     // Send Real-Time Loan Disbursed Notification
     try {
       const { default: notificationService } = await import('../notificationService.js');
-      const disbursedPounds = (Number(offer.approved_amount) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2 });
+      const disbursedPounds = (Number(offer.approved_amount) / 100).toLocaleString('en-GB', {
+        minimumFractionDigits: 2,
+      });
       await notificationService.createNotification({
         user_id: userId,
         title: 'Loan Funds Disbursed',

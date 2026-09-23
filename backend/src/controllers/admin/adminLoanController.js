@@ -5,12 +5,20 @@ import logger from '../../config/logger.js';
 
 export const getPendingLoanReviews = async (request, reply) => {
   try {
-    const reviews = await adminLoanService.getPendingReviews();
+    const result = await adminLoanService.getPendingReviews(request.query || {});
     return successResponse({
       reply,
       statusCode: STATUS_CODES.OK,
       message: 'Pending loan underwriting reviews retrieved',
-      data: reviews,
+      data: result.reviews,
+      meta: {
+        page: result.page,
+        limit: result.limit,
+        totalCount: result.totalCount,
+        totalPages: result.totalPages,
+        hasMore: result.hasMore,
+        stats: result.stats,
+      },
     });
   } catch (error) {
     logger.error(`getPendingLoanReviews error: ${error.message}`);
@@ -21,7 +29,8 @@ export const getPendingLoanReviews = async (request, reply) => {
 export const approveLoanApplication = async (request, reply) => {
   try {
     const { id } = request.params;
-    const { adminNotes, customInterestRateBps, customApprovedAmountCents, customTenureMonths } = request.body || {};
+    const { adminNotes, customInterestRateBps, customApprovedAmountCents, customTenureMonths } =
+      request.body || {};
     const result = await adminLoanService.approveApplication(request.user.id, id, {
       adminNotes,
       customInterestRateBps,
@@ -44,7 +53,12 @@ export const rejectLoanApplication = async (request, reply) => {
   try {
     const { id } = request.params;
     const { rejectionReason, adminNotes } = request.body || {};
-    const result = await adminLoanService.rejectApplication(request.user.id, id, rejectionReason, adminNotes);
+    const result = await adminLoanService.rejectApplication(
+      request.user.id,
+      id,
+      rejectionReason,
+      adminNotes
+    );
     return successResponse({
       reply,
       statusCode: STATUS_CODES.OK,
